@@ -1,6 +1,6 @@
 // Pure game logic: state in, state out. No DOM.
 import { TUNING } from "./tuning.js";
-import { CARDS, STARTER, PICKUPS, SHADE_INTENTS, CHANDLER_INTENTS, BAKER_INTENTS, FOES, SPOT, CHAPEL, BAKERY } from "./content.js";
+import { CARDS, STARTER, PICKUPS, SHADE_INTENTS, CHANDLER_INTENTS, BAKER_INTENTS, FOES, SPOT, CHAPEL, BAKERY, GEAR, STARTING_GEAR, GEAR_SPOTS } from "./content.js";
 
 export const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
 export const has=(s,id)=>s.found.includes(id);
@@ -11,8 +11,43 @@ export const bakerInside=s=>has(s,"slip")&&!s.bakeryWon;
 export function initialState(){
   return { mode:"street", scene:"street", player:{x:2,y:3}, found:[], won:false, chapelWon:false,
     baker:{...SPOT.baker}, bakerTick:0, looks:{}, bakeryOpen:false, bakeryWon:false, trail:[],
+    gear:structuredClone(STARTING_GEAR),
     say:{text:"You wake standing in the middle of a street. No one is here. Your breath doesn't fog. Near the records room, one small thing still has colour in it.",choices:[]},
     battle:null };
+}
+
+// ---- Gear
+export const owns=(s,id)=>s.gear.owned.includes(id);
+export const wearing=(s,id)=>Object.values(s.gear.equipped).includes(id);
+export function gearMods(s){
+  const m={maxHp:0,blockStart:0,penBonus:0,stillBonus:0,firstWill:0,bakerSteps:0,sightHeal:0,freeLight:0,loafFree:0,sightRange:0};
+  for(const id of Object.values(s.gear.equipped)) for(const [k,v] of Object.entries(GEAR[id].mods)) m[k]+=v;
+  return m;
+}
+// Adds gear to the satchel (and puts it on, if that slot is empty). Returns a line for the narration.
+export function gainGear(s,id){
+  if(owns(s,id)) return "";
+  const g=GEAR[id]; s.gear.owned.push(id); s.lastGear={id,at:Date.now()};
+  if(!s.gear.equipped[g.slot]){ s.gear.equipped[g.slot]=id; return `\n\n${g.name} (${g.slot}): you put it on. ${g.text}`; }
+  return `\n\n${g.name} (${g.slot}) goes in your satchel. ${g.text}`;
+}
+const gearSpotAvailable=(s,id)=>!owns(s,id)&&(!GEAR_SPOTS[id].needs||s[GEAR_SPOTS[id].needs]);
+export const gearSpotVisible=gearSpotAvailable;
+export const intentDmg=(foe,it)=>Math.round(it.dmg*FOES[foe].hit);
+export const intentText=(foe,it)=>it.seen.replace("{d}",intentDmg(foe,it));
+export const costOf=(b,id)=>id==="loaf"&&b.mods.loafFree?0:CARDS[id].cost;
+export const lightCostOf=b=>b.freeLight>0?0:TUNING.lightCost;
+export function cardText(b,id){
+  const m=b.mods;
+  if(id==="pen") return `Deal ${3+m.penBonus}.`;
+  if(id==="still") return `Block ${4+m.stillBonus}.`;
+  if(id==="loaf"&&m.loafFree) return "Set it down. Free, and he doesn't move.";
+  return CARDS[id].battle;
+}
+// Saves from older versions are missing newer fields; fill them in.
+export function upgrade(saved){
+  const base=initialState();
+  return {...base,...saved,gear:saved.gear?{owned:[...saved.gear.owned],equipped:{...saved.gear.equipped}}:base.gear,looks:saved.looks||{},trail:saved.trail||[]};
 }
 
 export function thingAt(x,y,s){
@@ -33,6 +68,7 @@ export function thingAt(x,y,s){
     if(at(BAKERY.baker)&&bakerInside(s)) return "bakerIn";
     if(at(PICKUPS.slip)) return "slip";
     if(at(BAKERY.dough)) return "dough";
+    if(at(BAKERY.hook)) return "hook";
     if(on(BAKERY.ovens)) return "oven";
     if(on(BAKERY.shelves)) return "shelf";
     if(on(BAKERY.counter)) return "counter";
@@ -83,13 +119,18 @@ export function pickup(s,id){
 }
 
 export function interact(s,id){
-  if(id.startsWith("ghost")){ const g=CHAPEL.ghosts[+id.slice(5)]; return say(s,s.chapelWon?g.lit:g.dim); }
+  if(id.startsWith("ghost")){
+    const n=+id.slice(5), g=CHAPEL.ghosts[n];
+    if(n===3&&!owns(s,"gaiters")) return say(s,g.dim+"\n\nUnder it, folded the way you fold things: a pair of gaiters. Yours."+gainGear(s,"gaiters"));
+    if(n===0&&s.chapelWon&&!owns(s,"key")) return say(s,g.lit+"\n\nHe lifts a key on a string from around his neck and holds it out, still not looking at you. “You'll want light where you're going,” he says. “It's dark in an oven.”"+gainGear(s,"key"));
+    return say(s,s.chapelWon?g.lit:g.dim);
+  }
   switch(id){
-    case "records": return say(s,[
-      "The records room. A desk, a ledger, and a chair worn to the shape of someone who sat there a long time.",
-      "The ledger on the desk is open to today. The last entry is in your handwriting. The ink is still wet.",
-      "The chair is still warm.",
-    ][Math.min(looked(s,"records"),2)]);
+    case "records":{
+      const n=looked(s,"records");
+      if(n===1) return say(s,"The ledger on the desk is open to today. The last entry is in your handwriting. The ink is still wet.\n\nIn the desk drawer: a pair of gloves, stained with the same ink."+gainGear(s,"gloves"));
+      return say(s,n===0?"The records room. A desk, a ledger, and a chair worn to the shape of someone who sat there a long time.":"The chair is still warm.");
+    }
     case "bakeryDoor":{
       if(s.bakeryOpen){ s.scene="bakery"; s.player={...BAKERY.entry}; s.trail=[];
         return say(s,s.bakeryWon?"The ovens are banked, and the bakery smells like bread. Only bread."
@@ -102,8 +143,9 @@ export function interact(s,id){
     case "well":
       if(pickupAvailable(s,"coin")) return pickup(s,"coin");
       if(!has(s,"coin")) return say(s,"The well is dry. The rope goes down and stops at nothing.");
-      return say(s,looked(s,"well")===0?"Dry. Something down there used to be cold."
-        :"You lean over the edge and hold your breath. At the bottom, something keeps breathing. It's in time with you. It's in time with you even now.");
+      if(looked(s,"well")===0) return say(s,"Dry. Something down there used to be cold.");
+      if(!owns(s,"rope")) return say(s,"You lean over the edge and hold your breath. At the bottom, something keeps breathing. It's in time with you.\n\nYou haul the rope up, hand over hand, to see what's on the end of it. Nothing is. It's warm."+gainGear(s,"rope"));
+      return say(s,"You lean over the edge and hold your breath. At the bottom, something keeps breathing. It's in time with you. It's in time with you even now.");
     case "maren":
       if(s.bakeryWon){ s.mode="end"; return say(s,"Maren is waiting at the well. She looks right at you, and then at the loaf in your hands. “Three winters,” she says. “And you came back for it.”\n\nShe breaks the loaf and gives you half. It's warm. You can taste it. Then she sets her half on the edge of the well, carefully, the way people leave bread out for the dead.",[{label:"Begin again",action:{type:"RESET"}}]); }
       if(s.chapelWon&&!s.bakeryOpen){ s.bakeryOpen=true; return say(s,"Maren turns before you reach her. “You said your name in there,” she says. “I heard it all the way out at the well. I'd forgotten I knew it.”\n\nShe looks right at you now, not near you. Behind her, the bakery door has swung open on warm light and the smell of bread. The baker isn't on the street anymore. You didn't see him go."); }
@@ -125,8 +167,9 @@ export function interact(s,id){
       return say(s,s.chapelWon?"You step out onto the cobbles. The street looks warmer than you left it.":"You step back out onto the cobbles.");
     case "altar":
       if(chandlerVisible(s)) return say(s,"The Chandler stands over the altar, working the wax.",fight("chandler"));
-      return say(s,s.chapelWon?"The altar candles burn evenly now, one for every name in the register."
-        :"The altar is crowded with half-made candles. Each has a scrap of paper pressed into the wax, a few letters showing.");
+      if(s.chapelWon) return say(s,"The altar candles burn evenly now, one for every name in the register.");
+      return say(s,"The altar is crowded with half-made candles. Each has a scrap of paper pressed into the wax, a few letters showing."
+        +(owns(s,"veil")?"":"\n\nAmong them, folded small, a black veil."+gainGear(s,"veil")));
     case "stand":
       if(pickupAvailable(s,"taper")) return pickup(s,"taper");
       return say(s,"One candle still burns on the stand. You've taken what light you can carry.");
@@ -151,8 +194,13 @@ export function interact(s,id){
       if(s.bakeryWon) return say(s,"Just an oven. The coals are banked.");
       return say(s,looked(s,"oven")===0?"The oven is lit. Through the grate, a hand is pressed flat against the iron from the inside. It isn't burning. It's waiting."
         :"The hand is gone. There's a print on the inside of the grate, at the height of your face.");
-    case "dough": return say(s,s.bakeryWon?"Just dough, rising under a cloth."
-      :"A bowl of dough under a cloth, rising. Something under the surface presses up against the cloth, the shape of a palm, and sinks back down.");
+    case "dough":
+      if(s.bakeryWon) return say(s,"Just dough, rising under a cloth.");
+      if(looked(s,"dough")>0&&!owns(s,"ring")) return say(s,"You lift the cloth and push your hand into the dough. It's warm all the way through. Something in there closes around your fingers, gently, and lets go. When you pull your hand out, you're holding a ring."+gainGear(s,"ring"));
+      return say(s,"A bowl of dough under a cloth, rising. Something under the surface presses up against the cloth, the shape of a palm, and sinks back down.");
+    case "hook":
+      if(!owns(s,"apron")) return say(s,"On a hook by the ovens, a baker's apron. It's warm, like it was just taken off. Like someone is still in it."+gainGear(s,"apron"));
+      return say(s,"An empty hook. It's still swinging a little.");
   }
   return s;
 }
@@ -176,6 +224,8 @@ export function reduce(prev,a){
         s.player={x,y}; s.say={text:s.say.text,choices:[]}; creep(s);
         if(s.scene==="bakery") s.trail=[...s.trail,{x,y}].slice(-9);
         for(const [id,p] of Object.entries(PICKUPS)) if(p.step&&p.scene===s.scene&&p.x===x&&p.y===y&&pickupAvailable(s,id)) return pickup(s,id);
+        for(const [id,p] of Object.entries(GEAR_SPOTS)) if(p.scene===s.scene&&p.x===x&&p.y===y&&gearSpotAvailable(s,id))
+          return say(s,"Outside the records room door, a pair of felt slippers, side by side, as if someone stepped out of them a moment ago. They're your size."+gainGear(s,id));
         return s;
       }
       const t=thingAt(x,y,s); return t?interact(s,t):prev;
@@ -184,23 +234,25 @@ export function reduce(prev,a){
     case "START_BATTLE":{
       const foe=FOES[a.foe];
       s.mode="battle"; s.say={text:"",choices:[]};
-      const b={foe:a.foe,hp:TUNING.hp,maxHp:TUNING.hp,block:0,will:TUNING.will,hand:[],dark:[],draw:shuffle([...STARTER,...s.found]),discard:[],taken:[],
-        foeHp:foe.hp,foeMax:foe.hp,turn:0,weaken:0,snuffed:false,near:TUNING.bakerSteps,grips:[...foe.grips],over:null,log:foe.opening};
+      const m=gearMods(s), hp=TUNING.hp+m.maxHp;
+      const b={foe:a.foe,hp,maxHp:hp,block:m.blockStart,will:TUNING.will+m.firstWill,hand:[],dark:[],draw:shuffle([...STARTER,...s.found]),discard:[],taken:[],
+        foeHp:foe.hp,foeMax:foe.hp,turn:0,weaken:0,snuffed:false,near:TUNING.bakerSteps+m.bakerSteps,grips:[...foe.grips],over:null,log:foe.opening,
+        mods:m,freeLight:m.freeLight};
       drawCards(b,TUNING.draw); darken(b,foe.dark); s.battle=b; return s;
     }
     case "LIGHT":{
-      const b=s.battle; if(!b||b.over||!b.dark[a.i]||b.will<TUNING.lightCost) return prev;
-      b.will-=TUNING.lightCost; b.dark[a.i]=false; b.log=`You bring the ${CARDS[b.hand[a.i]].name.toLowerCase()} into the light.`;
+      const b=s.battle; if(!b||b.over||!b.dark[a.i]||b.will<lightCostOf(b)) return prev;
+      if(b.freeLight>0) b.freeLight--; else b.will-=TUNING.lightCost; b.dark[a.i]=false; b.log=`You bring the ${CARDS[b.hand[a.i]].name.toLowerCase()} into the light.`;
       return s;
     }
     case "PLAY":{
       const b=s.battle; if(!b||b.over||b.dark[a.i]) return prev;
-      const id=b.hand[a.i], c=CARDS[id]; if(!c||c.cost>b.will) return prev;
-      b.will-=c.cost; b.hand.splice(a.i,1); b.dark.splice(a.i,1); b.discard.push(id);
+      const id=b.hand[a.i], c=CARDS[id]; if(!c||costOf(b,id)>b.will) return prev;
+      b.will-=costOf(b,id); b.hand.splice(a.i,1); b.dark.splice(a.i,1); b.discard.push(id);
       const blind=b.foe==="shade"&&b.taken.includes("ribbon");
       const hit=n=>{ const d=blind?Math.floor(n/2):n; b.foeHp=Math.max(0,b.foeHp-d); return d; };
-      if(id==="pen") b.log=`You strike with the pen. ${hit(3)} damage${blind?", swinging blind":""}.`;
-      if(id==="still"){ b.block+=4; b.log="You hold still and it loses track of you. Block 4."; }
+      if(id==="pen") b.log=`You strike with the pen. ${hit(3+b.mods.penBonus)} damage${blind?", swinging blind":""}.`;
+      if(id==="still"){ const n=4+b.mods.stillBonus; b.block+=n; b.log=`You hold still and it loses track of you. Block ${n}.`; }
       if(id==="flower"){ b.hp=Math.min(b.maxHp,b.hp+3); b.log="You remember her face. Presence +3."; }
       if(id==="coin"){ const d=hit(2); b.weaken+=3; b.log=`The coin's cold bites into it. ${d} damage, and it slows.`; }
       if(id==="ribbon") b.log=`You lash it with the burned ribbon. ${hit(7)} damage.`;
@@ -212,10 +264,11 @@ export function reduce(prev,a){
       if(id==="loaf"){ b.discard.pop(); b.log="You set the grey loaf down. It's still warm. It's warm the way a hand is warm."; }
       if(id==="candle"){ const d=hit(4), j=b.dark.indexOf(true); if(j>=0) b.dark[j]=false; b.log=`The candle's flame licks at it. ${d} damage${j>=0?", and a dark card comes into the light":""}.`; }
       // The baker: every card without Sight means looking down at your hand.
-      if(b.foe==="baker"&&!c.sight&&b.foeHp>0){
+      if(c.sight&&b.mods.sightHeal&&b.foeHp>0&&b.hp<b.maxHp){ b.hp=Math.min(b.maxHp,b.hp+b.mods.sightHeal); b.log+=" The ring is warm on your finger."; }
+      if(b.foe==="baker"&&!c.sight&&!(id==="loaf"&&b.mods.loafFree)&&b.foeHp>0){
         b.near--;
         if(b.near<=0){
-          const through=Math.max(0,TUNING.bakerReach-b.block); b.block=Math.max(0,b.block-TUNING.bakerReach); b.hp=Math.max(0,b.hp-through); b.near=TUNING.bakerSteps;
+          const through=Math.max(0,TUNING.bakerReach-b.block); b.block=Math.max(0,b.block-TUNING.bakerReach); b.hp=Math.max(0,b.hp-through); b.near=TUNING.bakerSteps+b.mods.bakerSteps;
           b.log+=` When you look up he's right there, close enough to smell the yeast. You lose ${through} presence. Then he's back where he was.`;
           if(b.hp<=0){ b.over="lost"; b.log=FOES.baker.lose; return s; }
         } else b.log+=b.near===1?" You look down. When you look up, he's close enough to touch.":" You look down. He's a step closer.";
@@ -241,11 +294,11 @@ export function reduce(prev,a){
       }
       if(it.kind==="snuff") b.snuffed=true;
       if(it.kind==="bake"){ b.discard.push("loaf","loaf"); note=" Two grey loaves go into your deck."; }
-      const dmg=Math.max(0,it.dmg-b.weaken); b.weaken=0;
+      const dmg=Math.max(0,intentDmg(b.foe,it)-b.weaken); b.weaken=0;
       const through=Math.max(0,dmg-b.block); b.hp=Math.max(0,b.hp-through); b.block=0; b.turn++;
       b.log=`${foe.he?"He":"It"} ${foe.verbs[it.kind]}. You lose ${through} presence.${note}`;
       if(b.hp<=0){ b.over="lost"; b.log=foe.lose; return s; }
-      b.will=TUNING.will; drawCards(b,TUNING.draw);
+      b.will=TUNING.will; b.freeLight=b.mods.freeLight; drawCards(b,TUNING.draw);
       darken(b,b.snuffed?b.hand.length:foe.dark); b.snuffed=false;
       return s;
     }
@@ -261,7 +314,7 @@ export function reduce(prev,a){
         return say(s,"The Chandler is gone. One by one the candles on the altar take light, and the shapes in the pews sharpen into people: a lamplighter, a girl in a Sunday collar, a cooper with sawdust in his sleeves. People from the street, written over and kept here.\n\nNone of them look at you yet. But somewhere outside, by the well, someone heard you say your name.");
       }
       s.found.push("glance"); s.won=true; s.lastFound={id:"glance",at:Date.now()};
-      return say(s,"The shade is gone. Across the street, Maren's head turns, slowly, until she is almost looking at you. A baker has appeared outside the bakery, frozen mid-step.");
+      return say(s,"The shade is gone. Across the street, Maren's head turns, slowly, until she is almost looking at you. A baker has appeared outside the bakery, frozen mid-step.\n\nWhere it stood, a stub of tallow on the cobbles."+gainGear(s,"tallow"));
     }
     case "RETREAT":{
       if(!s.battle) return prev;
@@ -273,6 +326,15 @@ export function reduce(prev,a){
       return say(s,"You're on the cobbles again, and the street is thinner than before."+tail);
     }
     case "RESET": return initialState();
+    case "LOAD": return upgrade(a.state);
+    case "EQUIP":{
+      if(s.mode==="battle"||!owns(s,a.id)) return prev;
+      s.gear.equipped[GEAR[a.id].slot]=a.id; return s;
+    }
+    case "UNEQUIP":{
+      if(s.mode==="battle"||!s.gear.equipped[a.slot]) return prev;
+      delete s.gear.equipped[a.slot]; return s;
+    }
   }
   return prev;
 }

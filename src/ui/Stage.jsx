@@ -6,7 +6,8 @@ import { bind, drawScene } from "../scenes/index.js";
 const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],W:[0,-1],S:[0,1],A:[-1,0],D:[1,0]};
 const LABEL={street:"The street",chapel:"Inside the chapel",bakery:"Inside the bakery"};
 
-export default function Stage({state,stateRef,dispatch,hidden}){
+export default function Stage({state,stateRef,dispatch,hidden,paused}){
+  const pausedRef=useRef(paused); pausedRef.current=paused;
   const base=useRef(null), over=useRef(null), walk=useRef(null);
 
   // Draw loop: the canvas is imperative pixel art; React only owns the state it reads.
@@ -20,14 +21,14 @@ export default function Stage({state,stateRef,dispatch,hidden}){
   const stopWalk=()=>{ clearInterval(walk.current); walk.current=null; };
   useEffect(()=>{
     const onKey=e=>{
-      if(stateRef.current.mode!=="street"||e.target.tagName==="BUTTON") return;
+      if(stateRef.current.mode!=="street"||pausedRef.current||e.target.tagName==="BUTTON") return;
       const k=KEYS[e.key]; if(!k) return; e.preventDefault(); stopWalk(); dispatch({type:"STEP",dx:k[0],dy:k[1]});
     };
     addEventListener("keydown",onKey); return ()=>{ removeEventListener("keydown",onKey); stopWalk(); };
   },[stateRef,dispatch]);
 
   const onClick=e=>{
-    const s0=stateRef.current; if(s0.mode!=="street") return;
+    const s0=stateRef.current; if(s0.mode!=="street"||pausedRef.current) return;
     const r=e.currentTarget.getBoundingClientRect(), tx=Math.floor((e.clientX-r.left)/r.width*TUNING.cols), ty=Math.floor((e.clientY-r.top)/r.height*TUNING.rows);
     stopWalk(); const path=findPath(s0,tx,ty); if(!path) return;
     const target=thingAt(tx,ty,s0); let moved=false;

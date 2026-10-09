@@ -14,7 +14,7 @@ Vite + React. Needs Node 18+.
 npm install
 npm run dev       # local dev server with hot reload
 npm test          # rules tests, including a full bot playthrough of the game
-npm run balance   # bot plays each fight thousands of times and prints win rates
+npm run balance   # bot plays each fight thousands of times, with and without gear
 npm run build     # one self-contained file: dist/index.html
 ```
 
@@ -49,6 +49,24 @@ Or from a machine with `wrangler` logged in: `npm run build && npx wrangler page
 - **The baker.** He only moves while you look away. Each card you play *without* Sight means looking down at your hand, and he takes a step (4 steps; at 0 he's on you for 9, then back to where he was). Sight cards let you keep your eyes on him. He also bakes *Grey loaves* into your deck: junk that costs 1 will (and a step) to set down.
 - **Ending.** Win for *Warm bread* and the loaf with your name on it. Take it to Maren.
 - **The ledger.** A ruled side panel that inks in each card and what it lets you see.
+- **Title and saving.** The game autosaves after every action (one save per browser, in `localStorage`). The title offers Continue, with where you are and how many ledger entries, or New game, which asks before wiping the save. Once you've finished, the title's empty street isn't empty anymore.
+- **Gear.** Nine slots: head, neck, chest, hands, legs, belt, feet, fingers, trinket. Open the satchel with **I** or the Satchel button (not mid-fight) to see what you're wearing, take things off, or wear something else. Gear goes on automatically if its slot is empty.
+
+  | Slot | Gear | Where | Effect |
+  |---|---|---|---|
+  | Head | Clerk's cap | you start in it | +2 presence |
+  | Head | Mourning veil | the chapel altar | +1 presence, see further in the dark |
+  | Neck | Lamplighter's key | Tobin, after the chapel | start each fight with 3 block |
+  | Chest | Clerk's coat | you start in it | +2 presence |
+  | Chest | Baker's apron | hook by the bakery ovens | grey loaves are free and don't draw the baker closer |
+  | Hands | Ink-stained gloves | records room, second look | Clerk's pen deals 1 more |
+  | Legs | Your gaiters | under your empty pew | Hold still blocks 1 more |
+  | Belt | Well rope | the well, after listening | +1 will on your first turn |
+  | Feet | Felt slippers | outside the records room, after the shade | the baker needs one more step |
+  | Fingers | Ring from the dough | reach into the dough | Sight cards restore 1 presence |
+  | Trinket | Tallow stub | left by the shade | once a turn, lighting a dark card is free |
+
+  Fights are tuned so gear helps a lot without being required (see `npm run balance`).
 - **Unease.** Quiet horror, no gore or jump-scares:
   - The baker never moves while you're near him. Walk away and he's closer, always facing you.
   - Records room, well, and bakery door get worse each time you look (`looks` counters).
@@ -61,10 +79,11 @@ Or from a machine with `wrangler` logged in: `npm run build && npx wrangler page
 ## Code map
 
 - `src/game/tuning.js`: all balance numbers (HP, will, draw, foe HP, grip thresholds, darkness, baker pace, ledger-phantom timing, grayscale steps).
-- `src/game/content.js`: cards, pickups, foe intents, foes, and the layouts of the street, chapel, and bakery.
-- `src/game/rules.js`: all game logic as a pure reducer, `reduce(state, action)` (`STEP`, `START_BATTLE`, `LIGHT`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`), plus map helpers and tap-to-walk pathfinding. `state.scene` is `street`, `chapel`, or `bakery`. No DOM, so it runs in tests and scripts.
+- `src/game/content.js`: cards, pickups, foe intents, foes, gear and slots, and the layouts of the street, chapel, and bakery.
+- `src/game/rules.js`: all game logic as a pure reducer, `reduce(state, action)` (`STEP`, `START_BATTLE`, `LIGHT`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`, `LOAD`, `EQUIP`, `UNEQUIP`), plus map helpers and tap-to-walk pathfinding. `state.scene` is `street`, `chapel`, or `bakery`. No DOM, so it runs in tests and scripts.
 - `src/scenes/`: canvas pixel art, one file per place (`street.js`, `chapel.js`, `bakery.js`), with shared pixel helpers and sprites in `paint.js`. Each draws a base layer, then an overlay for glowing pickups, darkness, and foes.
-- `src/ui/`: React components. `Stage` (canvases, draw loop, keyboard and tap input), `Battle`, `Narration`, `Ledger` (including the lines it writes on its own).
+- `src/game/save.js`: autosave to `localStorage`; `upgrade()` in rules.js fills in fields older saves are missing.
+- `src/ui/`: React components. `Title`, `Satchel`, `Stage` (canvases, draw loop, keyboard and tap input), `Battle`, `Narration`, `Ledger` (including the lines it writes on its own).
 - `src/audio/sfx.js`: WebAudio ambience and footsteps, no audio files.
 - `test/`: Vitest tests and the bot player; `scripts/balance.js` uses the same bot.
 

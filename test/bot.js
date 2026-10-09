@@ -46,14 +46,21 @@ export function playthrough(){
   let s=initialState();
   const streetCards=s=>{ s=walkTo(s,3,4); s=walkTo(s,6,5); return s.won?s:walkTo(s,10,5); };
   const refindStreet=s=>{ for(const [id,x,y] of [["flower",3,4],["coin",6,5],["ribbon",10,5]]) if(!has(s,id)) s=walkTo(s,x,y); return s; };
+  s=walkTo(s,2,2); s=walkTo(s,2,4); s=walkTo(s,2,2); // records room twice: gloves
   s=streetCards(s);
-  s=winFight(s,"shade",refindStreet);
+  s=walkTo(s,5,6); s=walkTo(s,6,5); s=walkTo(s,5,6); s=walkTo(s,6,5); // the well twice more: rope
+  s=winFight(s,"shade",refindStreet);                // the shade leaves the tallow stub
+  s=walkTo(s,1,3);                                   // slippers by the records room
   s=walkTo(s,9,2);                                   // into the chapel
+  s=walkTo(s,9,5);                                   // your empty pew: gaiters
   s=walkTo(s,1,2); s=walkTo(s,10,2);                 // taper, then your name
   s=winFight(s,"chandler",s=>has(s,"taper")?s:walkTo(s,1,2));
+  s=walkTo(s,3,3);                                   // Tobin's key
   s=walkTo(s,6,7);                                   // back out
   s=walkTo(s,7,5);                                   // Maren opens the bakery
   s=walkTo(s,6,2);                                   // into the bakery
+  s=walkTo(s,3,5); s=walkTo(s,3,6); s=walkTo(s,3,5);  // the dough, twice: ring
+  s=walkTo(s,10,3);                                  // the apron (goes in the satchel; the bot keeps the coat)
   s=walkTo(s,9,4);                                   // the order slip
   s=winFight(s,"baker",s=>s);
   s=walkTo(s,6,7); s=walkTo(s,7,5);                  // out to Maren

@@ -1,6 +1,6 @@
 // The street: base layer, then the overlay (pickups, the shade).
 import { SPOT, CHAPEL, BAKERY, PICKUPS } from "../game/content.js";
-import { has, pickupAvailable, shadeVisible, chandlerVisible, bakerInside } from "../game/rules.js";
+import { has, pickupAvailable, shadeVisible, chandlerVisible, bakerInside, gearSpotVisible } from "../game/rules.js";
 import { g, og, state, T, reduced, px, qx, fadeIn, lookAt, glimpse, sprite, halo } from "./paint.js";
 
 export const DRIFT=[[9,3],[10,3],[10,4],[9,4],[8,3],[8,4]];
@@ -55,6 +55,7 @@ export function drawStreet(t){
 export function drawOver(t){
   og.clearRect(0,0,192,128);
   const s=state, pulse=reduced?0.25:0.16+0.14*(0.5+0.5*Math.sin(t/320)), blink=reduced||Math.floor(t/500)%2;
+  if(gearSpotVisible(s,"slippers")){ const ox=1*T, oy=3*T; qx(ox+4,oy+10,3,5,"#5a4a66"); qx(ox+9,oy+9,3,5,"#5a4a66"); qx(ox+4,oy+10,3,1,"#7a6a88"); qx(ox+9,oy+9,3,1,"#7a6a88"); }
   if(pickupAvailable(s,"flower")){ const ox=3*T, oy=4*T; halo(3,4,pulse); qx(ox+7,oy+6,1,6,"#5f7a3a"); qx(ox+5,oy+5,5,3,"#8a5aa8"); qx(ox+6,oy+4,3,1,"#a57ac2"); if(blink) qx(ox+7,oy+6,1,1,"#fff"); }
   if(pickupAvailable(s,"coin")){ const ox=6*T, oy=5*T; qx(ox+5,oy+6,6,5,`rgba(170,210,255,${pulse})`); qx(ox+7,oy+8,2,2,"#cfe3f5"); if(blink) qx(ox+7,oy+8,1,1,"#fff"); }
   if(pickupAvailable(s,"ribbon")){ const ox=10*T, oy=5*T; halo(10,5,pulse); qx(ox+2,oy+8,2,2,"#c0392b"); qx(ox+4,oy+9,7,2,"#c0392b"); qx(ox+5,oy+8,3,1,"#e8644f"); qx(ox+11,oy+8,3,3,"#1a1a1a"); if(blink) qx(ox+13,oy+8,1,1,"#ff9a3c"); }

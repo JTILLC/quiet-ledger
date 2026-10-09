@@ -1,6 +1,6 @@
 // The chapel: dark until the Chandler is gone.
 import { SPOT, CHAPEL, BAKERY, PICKUPS } from "../game/content.js";
-import { has, pickupAvailable, shadeVisible, chandlerVisible, bakerInside } from "../game/rules.js";
+import { has, pickupAvailable, shadeVisible, chandlerVisible, bakerInside, wearing } from "../game/rules.js";
 import { g, og, state, T, reduced, px, qx, fadeIn, lookAt, glimpse, sprite, halo } from "./paint.js";
 
 export function drawChapel(t){
@@ -43,7 +43,7 @@ export function drawChapelOver(t){
   const s=state, pulse=reduced?0.25:0.16+0.14*(0.5+0.5*Math.sin(t/320));
   if(!s.chapelWon){
     // the dark: you only see what's near you, near the one candle, and near the door
-    const r=has(s,"taper")?3.2:1.6, pl=s.player;
+    const r=(has(s,"taper")?3.2:1.6)+(wearing(s,"veil")?1:0), pl=s.player;
     for(let y=0;y<8;y++)for(let x=0;x<12;x++){
       const fall=(cx,cy,rad)=>Math.max(0,(Math.hypot(x-cx,y-cy)-rad)*0.32);
       const a=Math.min(0.88,fall(pl.x,pl.y,r),fall(CHAPEL.stand.x,CHAPEL.stand.y,1),fall(5.5,7,0.8));

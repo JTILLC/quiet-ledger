@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reduce, initialState, walkable } from "../src/game/rules.js";
+import { reduce, initialState, walkable, upgrade } from "../src/game/rules.js";
 import { TUNING } from "../src/game/tuning.js";
 import { playthrough, walkTo } from "./bot.js";
 
@@ -15,6 +15,7 @@ describe("the whole game", ()=>{
     expect(s.mode).toBe("end");
     expect(s.bakeryWon).toBe(true);
     expect(s.found).toEqual(expect.arrayContaining(["glance","name","candle","slip","bread"]));
+    expect(s.gear.owned).toEqual(expect.arrayContaining(["gloves","rope","tallow","slippers","gaiters","key","ring","apron"]));
   });
 });
 
@@ -59,7 +60,7 @@ describe("the baker", ()=>{
   it("reaches you at zero steps, then goes back", ()=>{
     let s=withHand(["pen"]); s.battle.near=1; s.battle.will=3;
     s=reduce(s,{type:"PLAY",i:0});
-    expect(s.battle.hp).toBe(TUNING.hp-TUNING.bakerReach);
+    expect(s.battle.hp).toBe(s.battle.maxHp-TUNING.bakerReach);
     expect(s.battle.near).toBe(TUNING.bakerSteps);
   });
   it("bakes grey loaves that leave the fight when set down", ()=>{
@@ -73,5 +74,58 @@ describe("the baker", ()=>{
     s=reduce(s,{type:"STEP",dx:0,dy:1});
     expect(s.scene).toBe("bakery");
     expect(walkable(5,6,s)).toBe(false);
+  });
+});
+
+describe("gear", ()=>{
+  it("starts the clerk in a cap and coat, which add presence", ()=>{
+    const s=inBattle("shade",[]);
+    expect(s.battle.maxHp).toBe(TUNING.hp+4);
+  });
+  it("finds gloves in the records room on the second look, and puts them on", ()=>{
+    let s=initialState();
+    s=walkTo(s,2,2); s=walkTo(s,2,4); s=walkTo(s,2,2);
+    expect(s.gear.equipped.hands).toBe("gloves");
+    s.battle=null; s=reduce(s,{type:"START_BATTLE",foe:"shade"});
+    s.battle.hand=["pen"]; s.battle.dark=[false];
+    s=reduce(s,{type:"PLAY",i:0});
+    expect(s.battle.foeHp).toBe(s.battle.foeMax-4);
+  });
+  it("swaps gear in a slot, and won't change gear mid-fight", ()=>{
+    let s={...initialState()}; s.gear={owned:["cap","coat","apron"],equipped:{head:"cap",chest:"coat"}};
+    s=reduce(s,{type:"EQUIP",id:"apron"});
+    expect(s.gear.equipped.chest).toBe("apron");
+    s=reduce(s,{type:"UNEQUIP",slot:"head"});
+    expect(s.gear.equipped.head).toBeUndefined();
+    const fighting=reduce(s,{type:"START_BATTLE",foe:"shade"});
+    expect(reduce(fighting,{type:"EQUIP",id:"cap"})).toBe(fighting);
+  });
+  it("the apron makes grey loaves free and keeps the baker still", ()=>{
+    let s={...initialState(),found:["slip"]}; s.gear={owned:["apron"],equipped:{chest:"apron"}};
+    s=reduce(s,{type:"START_BATTLE",foe:"baker"});
+    s.battle.hand=["loaf"]; s.battle.dark=[false];
+    s=reduce(s,{type:"PLAY",i:0});
+    expect(s.battle.will).toBe(TUNING.will);
+    expect(s.battle.near).toBe(TUNING.bakerSteps);
+  });
+  it("the tallow stub lights one dark card a turn for free", ()=>{
+    let s={...initialState(),found:["name"]}; s.gear={owned:["tallow"],equipped:{trinket:"tallow"}};
+    s=reduce(s,{type:"START_BATTLE",foe:"chandler"});
+    const i=s.battle.dark.indexOf(true);
+    s=reduce(s,{type:"LIGHT",i});
+    expect(s.battle.will).toBe(TUNING.will);
+  });
+});
+
+describe("saving", ()=>{
+  it("loads an old save that has no gear, with the starting gear", ()=>{
+    const old={...initialState()}; delete old.gear; old.found=["flower"];
+    const s=upgrade(JSON.parse(JSON.stringify(old)));
+    expect(s.found).toEqual(["flower"]);
+    expect(s.gear.equipped.head).toBe("cap");
+  });
+  it("round-trips through JSON", ()=>{
+    const s=reduce(initialState(),{type:"STEP",dx:1,dy:0});
+    expect(reduce(initialState(),{type:"LOAD",state:JSON.parse(JSON.stringify(s))})).toEqual(s);
   });
 });

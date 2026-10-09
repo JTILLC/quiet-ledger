@@ -1,6 +1,6 @@
 // The bakery: too warm.
 import { SPOT, CHAPEL, BAKERY, PICKUPS } from "../game/content.js";
-import { has, pickupAvailable, shadeVisible, chandlerVisible, bakerInside } from "../game/rules.js";
+import { has, pickupAvailable, shadeVisible, chandlerVisible, bakerInside, owns } from "../game/rules.js";
 import { g, og, state, T, reduced, px, qx, fadeIn, lookAt, glimpse, sprite, halo } from "./paint.js";
 
 export function drawBakery(t){
@@ -29,6 +29,9 @@ export function drawBakery(t){
     px(ox,oy+4,T,2,"#4a301f"); px(ox,oy+13,T,2,"#4a301f");
     [[2,1],[8,1],[3,10],[9,10]].forEach(([lx,ly],k)=>{ const rise=done||reduced?0:(Math.sin(t/900+i*1.7+k)>0.7?1:0); px(ox+lx,oy+ly-rise,5,3+rise,loafCol); px(ox+lx+1,oy+ly-rise,3,1,done?"#e0aa60":"#b0b0aa"); });
   });
+  // peg by the ovens, and the apron on it until you take it
+  { const ox=BAKERY.hook.x*T, oy=BAKERY.hook.y*T; px(ox+6,oy,4,2,"#4a301f"); px(ox+7,oy+2,1,2,"#2a1e14");
+    if(!owns(s,"apron")){ const sway=reduced||s.bakeryWon?0:Math.round(Math.sin(t/900)); px(ox+4+sway,oy+4,8,11,"#ece6d6"); px(ox+5+sway,oy+3,6,1,"#ece6d6"); px(ox+4+sway,oy+8,8,1,"#c9c1b0"); } }
   // counter, bell, order slip
   BAKERY.counter.concat([[PICKUPS.slip.x,PICKUPS.slip.y]]).forEach(([x,y])=>{ const ox=x*T, oy=y*T; px(ox,oy+3,T,2,"#efe9dc"); px(ox,oy+5,T,4,"#d8d2c4"); px(ox,oy+9,T,7,"#7a5a3a"); });
   px(7*T+6,4*T,4,3,"#c9a23a"); px(7*T+7,4*T-1,2,1,"#c9a23a");
