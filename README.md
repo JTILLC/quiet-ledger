@@ -8,7 +8,25 @@ Live version: https://claude.ai/artifact/7T3PhVbg2WS9ntJfV1WkGc
 
 ## Running it
 
-It's a single self-contained file. Open `index.html` in a browser. There's no build step.
+Vite + React. Needs Node 18+.
+
+```sh
+npm install
+npm run dev       # local dev server with hot reload
+npm test          # rules tests, including a full bot playthrough of the game
+npm run balance   # bot plays each fight thousands of times and prints win rates
+npm run build     # one self-contained file: dist/index.html
+```
+
+## Deploying (Cloudflare Pages)
+
+Connect the repo once and every push to `main` deploys:
+
+1. Cloudflare dashboard → Workers & Pages → Create → Pages → Connect to Git → `JTILLC/quiet-ledger`.
+2. Framework preset: **None**. Build command: `npm run build`. Build output directory: `dist`. Production branch: `main`.
+3. Save and Deploy. It'll be at `quiet-ledger.pages.dev`; add a custom domain under the project's Custom domains tab if you want one.
+
+Or from a machine with `wrangler` logged in: `npm run build && npx wrangler pages deploy dist --project-name quiet-ledger`.
 
 ## What's in this slice
 
@@ -40,14 +58,16 @@ It's a single self-contained file. Open `index.html` in a browser. There's no bu
   - Low presence in battle (4 or less) makes the screen close in.
   - Sound (toggle under the street; off until first tap/key): wind on the street, a drone in the chapel, a lower one in the bakery, footsteps that echo a beat late and sometimes once too often, a thump when a card is stolen.
 
-## Code map (`index.html`)
+## Code map
 
-- `TUNING`: all balance numbers (HP, will, draw, foe HP, grip thresholds, darkness, baker pace, ledger-phantom timing, grayscale steps).
-- `CARDS`, `PICKUPS`, `SHADE_INTENTS`, `CHANDLER_INTENTS`, `BAKER_INTENTS`, `FOES`, `SPOT`, `CHAPEL`, `BAKERY`: content and layout.
-- `reduce(state, action)`: all game logic as a pure reducer (`STEP`, `START_BATTLE`, `LIGHT`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`); `state.scene` is `street`, `chapel`, or `bakery`.
-- `render*`: DOM rendering for the ledger, narration, and battle.
-- `drawStreet` / `drawOver`, `drawChapel` / `drawChapelOver`, `drawBakery` / `drawBakeryOver`: canvas pixel art per scene (base layer, then an overlay for glowing pickups, darkness, and foes).
-- `SFX`: WebAudio ambience and footsteps, no audio files.
-- Input: keyboard, plus tap-to-walk with BFS pathfinding.
+- `src/game/tuning.js`: all balance numbers (HP, will, draw, foe HP, grip thresholds, darkness, baker pace, ledger-phantom timing, grayscale steps).
+- `src/game/content.js`: cards, pickups, foe intents, foes, and the layouts of the street, chapel, and bakery.
+- `src/game/rules.js`: all game logic as a pure reducer, `reduce(state, action)` (`STEP`, `START_BATTLE`, `LIGHT`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`), plus map helpers and tap-to-walk pathfinding. `state.scene` is `street`, `chapel`, or `bakery`. No DOM, so it runs in tests and scripts.
+- `src/scenes/`: canvas pixel art, one file per place (`street.js`, `chapel.js`, `bakery.js`), with shared pixel helpers and sprites in `paint.js`. Each draws a base layer, then an overlay for glowing pickups, darkness, and foes.
+- `src/ui/`: React components. `Stage` (canvases, draw loop, keyboard and tap input), `Battle`, `Narration`, `Ledger` (including the lines it writes on its own).
+- `src/audio/sfx.js`: WebAudio ambience and footsteps, no audio files.
+- `test/`: Vitest tests and the bot player; `scripts/balance.js` uses the same bot.
+
+Adding a place: its layout and cards in `content.js`, its interactions in `rules.js`, a drawing file in `src/scenes/`, and a line in `src/scenes/index.js`.
 
 Supports light/dark themes and `prefers-reduced-motion`.
