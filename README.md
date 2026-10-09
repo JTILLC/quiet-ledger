@@ -22,15 +22,20 @@ It's a single self-contained file. Open `index.html` in a browser. There's no bu
   - *Grasp* steals a found card. Stolen ribbon halves your damage. The shade lets go of stolen cards at HP thresholds.
   - Lose and stolen cards are gone from the street until you find them again.
 - **Win.** You gain *Maren's glance* (0 cost, draw 2). Maren starts to notice you, a baker appears, the lamps light, and the chapel opens.
+- **The chapel.** Dark inside; you only see what's near you. Faint townsfolk sit in the pews.
+  1. *Chapel taper* (candle stand) widens your light and lets you read.
+  2. *Your own name* (the wax-covered register) wakes the Chandler at the altar.
+- **The Chandler.** The second fight adds darkness: some cards in your hand come up dark and cost 1 will to bring into the light before you can play them. Its snuffer darkens your whole next hand, and it can draw cards into candles (released at HP thresholds, like the shade). *Your own name* can't be taken.
+- **Ending.** Win and you gain the *Lit candle*; the pews fill with real people. Go back out to Maren and she hears you.
 - **The ledger.** A ruled side panel that inks in each card and what it lets you see.
 
 ## Code map (`index.html`)
 
 - `TUNING`: all balance numbers (HP, will, draw, shade HP, grip thresholds, grayscale steps).
-- `CARDS`, `PICKUPS`, `INTENTS`, `SPOT`: content and layout.
-- `reduce(state, action)`: all game logic as a pure reducer (`STEP`, `START_BATTLE`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`).
+- `CARDS`, `PICKUPS`, `SHADE_INTENTS`, `CHANDLER_INTENTS`, `FOES`, `SPOT`, `CHAPEL`: content and layout.
+- `reduce(state, action)`: all game logic as a pure reducer (`STEP`, `START_BATTLE`, `LIGHT`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`); `state.scene` is `street` or `chapel`.
 - `render*`: DOM rendering for the ledger, narration, and battle.
-- `drawStreet` / `drawOver`: canvas pixel art (base layer and glowing pickups/shade overlay).
+- `drawStreet` / `drawOver` and `drawChapel` / `drawChapelOver`: canvas pixel art per scene (base layer, then an overlay for glowing pickups, darkness, and foes).
 - Input: keyboard, plus tap-to-walk with BFS pathfinding.
 
 Supports light/dark themes and `prefers-reduced-motion`.

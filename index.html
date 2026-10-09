@@ -33,7 +33,7 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;image-rendering:pix
 #street:focus-visible{outline:3px solid var(--margin);outline-offset:-3px}
 #over{position:absolute;top:0;left:0;width:100%;pointer-events:none}
 .narration{min-height:7.5em;padding:14px 2px 0}
-.narration p{margin:0 0 10px;max-width:62ch}
+.narration p{margin:0 0 10px;max-width:62ch;white-space:pre-line}
 .choices{display:flex;flex-wrap:wrap;gap:10px}
 button{font:inherit;font-size:17px;color:var(--ink);background:var(--slip);border:1px solid var(--slipline);border-radius:2px;padding:7px 14px;cursor:pointer}
 button:hover:not(:disabled){background:#fff}
@@ -62,6 +62,10 @@ button:disabled{opacity:.45;cursor:default}
 .card small{font-size:14px;color:#46525d;line-height:1.35}
 .card i{font-size:13.5px;color:var(--margin)}
 .card .cost{font-size:12px;color:var(--ink);letter-spacing:2px;min-height:1em}
+.card.dark{background:#3a3f45;border-color:#4a5057;border-left-color:#6a6f74;color:#cfd3c8}
+.card.dark:hover:not(:disabled){background:#454b52}
+.card.dark small{color:#a9b2b8}
+.card.dark .cost{color:#e0c48a}
 
 /* ledger / binder */
 .ledger{background:var(--paper);color:var(--ink);padding:22px 22px 26px 0;border-radius:2px;box-shadow:6px 6px 0 -1px #00000012}
@@ -98,8 +102,10 @@ button:disabled{opacity:.45;cursor:default}
 /* ===== Tuning (isolated) ===== */
 const TUNING = {
   tile:16, cols:12, rows:8, stepMs:105,
-  hp:14, will:3, draw:4, shadeHp:34, grips:[23,12],
-  grayByFound:[1,.8,.6,.4,.12],
+  hp:14, will:3, draw:4, lightCost:1,
+  shadeHp:34, shadeGrips:[23,12],
+  chandlerHp:40, chandlerGrips:[26,13], chandlerDark:1,
+  grayByFound:[1,.8,.6,.45,.3,.2,.1,0],
 };
 
 /* ===== Content ===== */
@@ -109,30 +115,85 @@ const CARDS = {
   flower:{name:"Pressed flower", cost:1, battle:"Regain 3 presence.", sight:"Maren, at the well", reveal:"Lets you see Maren, at the well."},
   coin:  {name:"Cold coin",      cost:1, battle:"Deal 2. Its next attack is 3 weaker.", sight:"the traces it leaves", reveal:"Lets you see the traces it leaves."},
   ribbon:{name:"Burned ribbon",  cost:2, battle:"Deal 7.", sight:"the shade itself", reveal:"Lets you see the shade itself."},
-  glance:{name:"Maren's glance", cost:0, battle:"Draw 2.", sight:"lets Maren see you", reveal:"Lets Maren see you, a little."},
+  glance:{name:"Maren's glance", cost:0, battle:"Draw 2.", sight:"lets Maren see you", reveal:"Lets Maren see you, a little.", keep:true},
+  taper: {name:"Chapel taper",   cost:0, battle:"Light every card in your hand. Draw 1.", sight:"what's written in the dark", reveal:"Lets you read what's written in the dark."},
+  name:  {name:"Your own name",  cost:1, battle:"Deal 3. Block 3. It can't be taken.", sight:"yourself", reveal:"Lets you see yourself. Lets Maren hear you.", keep:true},
+  candle:{name:"Lit candle",     cost:1, battle:"Deal 4. Light a card.", sight:"the people in the pews", reveal:"Lets you see the people in the pews."},
 };
 const STARTER = ["pen","pen","pen","still","still","still"];
-const PICKUPS = { flower:{x:3,y:4,needs:null}, coin:{x:6,y:5,needs:"flower",inWell:true}, ribbon:{x:10,y:5,needs:"coin"} };
-const INTENTS = [
+const PICKUPS = {
+  flower:{scene:"street",x:3,y:4,needs:null,step:true},
+  coin:  {scene:"street",x:6,y:5,needs:"flower",inWell:true},
+  ribbon:{scene:"street",x:10,y:5,needs:"coin",step:true},
+  taper: {scene:"chapel",x:1,y:2,needs:null},
+  name:  {scene:"chapel",x:10,y:2,needs:"taper"},
+};
+const SHADE_INTENTS = [
   {kind:"lunge", dmg:6, seen:"Maren's eyes go to your throat. It will lunge for 6."},
   {kind:"grasp", dmg:3, seen:"Maren's eyes go to your hands. It will tear a card away (3 damage)."},
   {kind:"smother", dmg:9, seen:"Maren covers her mouth. It will smother you for 9."},
   {kind:"lunge", dmg:7, seen:"Maren's eyes go to your throat. It will lunge for 7."},
 ];
+const CHANDLER_INTENTS = [
+  {kind:"snuff", dmg:3, seen:"It lifts its snuffer toward you. 3 damage, and your whole next hand comes up dark."},
+  {kind:"melt", dmg:7, seen:"It tips a candle over your head. Hot wax for 7."},
+  {kind:"grasp", dmg:2, seen:"It twists a wick between its fingers. It will draw a card into a candle (2 damage)."},
+  {kind:"melt", dmg:8, seen:"It tips two candles at once. Hot wax for 8."},
+];
+const FOES = {
+  shade:{name:"The tallow shade", hp:TUNING.shadeHp, grips:TUNING.shadeGrips, intents:SHADE_INTENTS, dark:0,
+    opening:"Every card you hold is a way of seeing it. It knows that.",
+    win:"It comes apart like smoke through a keyhole.", lose:"It pushes you out of itself.",
+    verbs:{lunge:"lunges",grasp:"reaches into you",smother:"smothers you"}, take:n=>`It tears away your ${n}.`},
+  chandler:{name:"The Chandler", hp:TUNING.chandlerHp, grips:TUNING.chandlerGrips, intents:CHANDLER_INTENTS, dark:TUNING.chandlerDark,
+    opening:"It pinches out the light around your hands. A dark card has to be brought into the light before you can play it.",
+    win:"It sags into its own wax and goes out.", lose:"It sets you on a shelf with the other candles, and you go out.",
+    verbs:{snuff:"snuffs the light around you",melt:"pours hot wax over you",grasp:"winds a wick around your wrist"}, take:n=>`It draws your ${n} into a candle.`},
+};
 const SPOT = { records:{x:2,y:2}, bakeryDoor:{x:6,y:2}, chapel:{x:9,y:2}, well:{x:6,y:5}, maren:{x:7,y:5}, shade:{x:9,y:3}, baker:{x:5,y:3} };
+const CHAPEL = {
+  entry:{x:6,y:6}, door:[{x:5,y:7},{x:6,y:7}], altar:[{x:5,y:1},{x:6,y:1}],
+  stand:{x:1,y:2}, lectern:{x:10,y:2}, chandler:{x:6,y:2},
+  pews:[[2,3],[3,3],[4,3],[7,3],[8,3],[9,3],[2,5],[3,5],[4,5],[7,5],[8,5],[9,5]],
+  ghosts:[
+    {x:3,y:3, look:{hair:"#cfcfcf",face:"#d9b49a",coat:"#4a4a52"},
+      dim:"A shape in the pew, like breath on glass. Maybe a man with his hat in his lap.",
+      lit:"Old Tobin, the lamplighter, hat in his lap. “Is it evening yet?” he asks no one in particular."},
+    {x:8,y:3, look:{hair:"#d8b46a",face:"#ecc9ae",coat:"#6f5a7a"},
+      dim:"A small shape in a Sunday collar.",
+      lit:"Ada Hale, in her Sunday collar, counting the candles under her breath. She gets to nine and starts again."},
+    {x:2,y:5, look:{hair:"#4a3020",face:"#c99a78",coat:"#5a4a32"},
+      dim:"Someone broad-shouldered, leaning forward as if to pray.",
+      lit:"Brenner the cooper, sawdust still in his sleeves. He's watching the door like he means to leave."},
+    {x:9,y:5, look:null,
+      dim:"This pew is empty, but the cushion is worn into a shallow. Someone sat here every week.",
+      lit:"Still empty. It was yours."},
+  ],
+};
 
 const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
 const has=(s,id)=>s.found.includes(id);
 const shadeVisible=s=>has(s,"ribbon")&&!s.won;
+const chandlerVisible=s=>has(s,"name")&&!s.chapelWon;
 
 function initialState(){
-  return { mode:"street", player:{x:2,y:3}, found:[], won:false,
+  return { mode:"street", scene:"street", player:{x:2,y:3}, found:[], won:false, chapelWon:false,
     say:{text:"You wake standing in the middle of a street. No one is here. Your breath doesn't fog. Near the records room, one small thing still has colour in it.",choices:[]},
     battle:null };
 }
 
 function thingAt(x,y,s){
   const at=p=>p.x===x&&p.y===y;
+  if(s.scene==="chapel"){
+    if(CHAPEL.door.some(at)) return "door";
+    if(CHAPEL.altar.some(at)) return "altar";
+    if(at(CHAPEL.stand)) return "stand";
+    if(at(CHAPEL.lectern)) return "lectern";
+    if(at(CHAPEL.chandler)&&chandlerVisible(s)) return "chandler";
+    const gi=CHAPEL.ghosts.findIndex(at); if(gi>=0) return "ghost"+gi;
+    if(CHAPEL.pews.some(([px,py])=>px===x&&py===y)) return "pew";
+    return null;
+  }
   if(at(SPOT.well)) return "well";
   if(at(SPOT.maren)&&has(s,"flower")) return "maren";
   if(at(SPOT.shade)&&shadeVisible(s)) return "shade";
@@ -141,22 +202,26 @@ function thingAt(x,y,s){
   return null;
 }
 function walkable(x,y,s){
-  if(x<1||x>10||y<3||y>6) return false;
+  const top=s.scene==="chapel"?2:3;
+  if(x<1||x>10||y<top||y>6) return false;
   const t=thingAt(x,y,s); return !t;
 }
 function pickupAvailable(s,id){ const p=PICKUPS[id]; return !has(s,id)&&(!p.needs||has(s,p.needs)); }
 
 function say(s,text,choices=[]){ s.say={text,choices}; return s; }
-const FIGHT=[{label:"Face it",action:{type:"START_BATTLE"}},{label:"Back away",action:{type:"DISMISS"}}];
+const fight=foe=>[{label:"Face it",action:{type:"START_BATTLE",foe}},{label:"Back away",action:{type:"DISMISS"}}];
 
 function pickup(s,id){
   s.found.push(id); s.lastFound={id,at:Date.now()};
   if(id==="flower") return say(s,"A pressed flower, violet gone to brown. The moment your hand closes on it, there is a woman by the well who was not there before. She doesn't blink. She's staring at the chapel steps.");
   if(id==="coin") return say(s,"At the bottom of the dry well, a coin so cold it burns. Now you can see frost crossing the cobbles near the chapel, one patch at a time, and the woman's eyes following it.");
-  if(id==="ribbon") return say(s,"A ribbon, burned at one end. You close your hand on it and the thing on the chapel steps is suddenly there: tall, smoke and old tallow. It turns its head. For the first time, something on this street sees you.",FIGHT);
+  if(id==="ribbon") return say(s,"A ribbon, burned at one end. You close your hand on it and the thing on the chapel steps is suddenly there: tall, smoke and old tallow. It turns its head. For the first time, something on this street sees you.",fight("shade"));
+  if(id==="taper") return say(s,"You take a taper from the stand and light it from the one candle still burning. The dark steps back a little. Across the chapel, something on the lectern catches the light.");
+  if(id==="name") return say(s,"You hold the taper over the register and the wax goes soft. Names, a long column of them: everyone on this street. Near the bottom is yours. Someone has been writing over it in tallow, night after night.\n\nYou say it out loud. It's the first sound you've made since you woke. At the altar, something tall straightens up from its work, a fistful of half-made candles in its hands. It heard you too.",fight("chandler"));
 }
 
 function interact(s,id){
+  if(id.startsWith("ghost")){ const g=CHAPEL.ghosts[+id.slice(5)]; return say(s,s.chapelWon?g.lit:g.dim); }
   switch(id){
     case "records": return say(s,"The records room. A desk, a ledger, and a chair worn to the shape of someone who sat there a long time.");
     case "bakeryDoor": return say(s,"The bakery door doesn't open. It has no inside yet.");
@@ -164,15 +229,33 @@ function interact(s,id){
       if(pickupAvailable(s,"coin")) return pickup(s,"coin");
       return say(s,has(s,"coin")?"Dry. Something down there used to be cold.":"The well is dry. The rope goes down and stops at nothing.");
     case "maren":
+      if(s.chapelWon){ s.mode="end"; return say(s,"Maren turns before you reach her. “You said your name in there,” she says. “I heard it all the way out at the well. I'd forgotten I knew it.”\n\nShe looks right at you now, not near you. Behind her, the bakery door has swung open. It has an inside now, warm and full of bread. That's for another night.",[{label:"Begin again",action:{type:"RESET"}}]); }
       if(s.won) return say(s,"She looks at you, or near you, the way you'd look at someone through a fogged window. “You're the clerk. You've stood at that desk three winters. I thought you were frost on the glass.”");
       if(has(s,"ribbon")) return say(s,"“It's on the steps,” she whispers. Not to you. She doesn't know you're here.");
       if(has(s,"coin")) return say(s,"She shivers as you come close and pulls her shawl tight. She's looking past you, at the frost.");
       return say(s,"She doesn't move. Her breath fogs in the cold. Yours doesn't.");
-    case "shade": return say(s,"It waits on the chapel steps, and it is watching you.",FIGHT);
+    case "shade": return say(s,"It waits on the chapel steps, and it is watching you.",fight("shade"));
     case "baker": return say(s,"A baker, frozen mid-step with a tray of loaves. He isn't looking at anything yet.");
     case "chapel":
-      if(s.won){ s.mode="end"; return say(s,"The chapel door is open now. Candlelight, and the smell of tallow. Whatever waits inside, you'll need more cards to see it.",[{label:"Begin again",action:{type:"RESET"}}]); }
+      if(s.won){ s.scene="chapel"; s.player={...CHAPEL.entry};
+        return say(s,s.chapelWon?"Back inside. The candles burn steady now, and the people in the pews are easy to see."
+          :"Inside, the chapel is colder than the street, and dark. You can only see what's close to you. Faint shapes sit in the pews, like breath on glass. By the door, one candle is still burning."); }
       return say(s,"The chapel door won't open. Something is holding it shut from your side of things.");
+    case "door": s.scene="street"; s.player={x:SPOT.chapel.x,y:SPOT.chapel.y+1};
+      return say(s,s.chapelWon?"You step out onto the cobbles. The street looks warmer than you left it.":"You step back out onto the cobbles.");
+    case "altar":
+      if(chandlerVisible(s)) return say(s,"The Chandler stands over the altar, working the wax.",fight("chandler"));
+      return say(s,s.chapelWon?"The altar candles burn evenly now, one for every name in the register."
+        :"The altar is crowded with half-made candles. Each has a scrap of paper pressed into the wax, a few letters showing.");
+    case "stand":
+      if(pickupAvailable(s,"taper")) return pickup(s,"taper");
+      return say(s,"One candle still burns on the stand. You've taken what light you can carry.");
+    case "lectern":
+      if(pickupAvailable(s,"name")) return pickup(s,"name");
+      if(has(s,"name")) return say(s,"The register. Your name is still there under the wax, if you look for it.");
+      return say(s,"A register lies open on the lectern, but a skin of wax covers the page. In this dark you can't make out a single word.");
+    case "chandler": return say(s,"It waits by the altar, rolling a wick between finger and thumb. It hasn't taken its eyes off you.",fight("chandler"));
+    case "pew": return say(s,"An empty stretch of pew.");
   }
   return s;
 }
@@ -181,9 +264,10 @@ function drawCards(b,n){
   for(let i=0;i<n;i++){
     if(!b.draw.length){ b.draw=shuffle(b.discard); b.discard=[]; }
     if(!b.draw.length) break;
-    b.hand.push(b.draw.pop());
+    b.hand.push(b.draw.pop()); b.dark.push(false);
   }
 }
+function darken(b,n){ for(const i of shuffle(b.hand.map((_,i)=>i)).slice(0,n)) b.dark[i]=true; }
 
 function reduce(prev,a){
   const s=structuredClone(prev);
@@ -193,64 +277,84 @@ function reduce(prev,a){
       const x=s.player.x+a.dx, y=s.player.y+a.dy;
       if(walkable(x,y,s)){
         s.player={x,y}; s.say={text:s.say.text,choices:[]};
-        for(const id of ["flower","ribbon"]){ const p=PICKUPS[id]; if(p.x===x&&p.y===y&&pickupAvailable(s,id)) return pickup(s,id); }
+        for(const [id,p] of Object.entries(PICKUPS)) if(p.step&&p.scene===s.scene&&p.x===x&&p.y===y&&pickupAvailable(s,id)) return pickup(s,id);
         return s;
       }
       const t=thingAt(x,y,s); return t?interact(s,t):prev;
     }
     case "DISMISS": return say(s,"");
     case "START_BATTLE":{
+      const foe=FOES[a.foe];
       s.mode="battle"; s.say={text:"",choices:[]};
-      const b={hp:TUNING.hp,maxHp:TUNING.hp,block:0,will:TUNING.will,hand:[],draw:shuffle([...STARTER,...s.found]),discard:[],taken:[],
-        shadeHp:TUNING.shadeHp,shadeMax:TUNING.shadeHp,turn:0,weaken:0,grips:[...TUNING.grips],over:null,
-        log:"Every card you hold is a way of seeing it. It knows that."};
-      drawCards(b,TUNING.draw); s.battle=b; return s;
+      const b={foe:a.foe,hp:TUNING.hp,maxHp:TUNING.hp,block:0,will:TUNING.will,hand:[],dark:[],draw:shuffle([...STARTER,...s.found]),discard:[],taken:[],
+        foeHp:foe.hp,foeMax:foe.hp,turn:0,weaken:0,snuffed:false,grips:[...foe.grips],over:null,log:foe.opening};
+      drawCards(b,TUNING.draw); darken(b,foe.dark); s.battle=b; return s;
+    }
+    case "LIGHT":{
+      const b=s.battle; if(!b||b.over||!b.dark[a.i]||b.will<TUNING.lightCost) return prev;
+      b.will-=TUNING.lightCost; b.dark[a.i]=false; b.log=`You bring the ${CARDS[b.hand[a.i]].name.toLowerCase()} into the light.`;
+      return s;
     }
     case "PLAY":{
-      const b=s.battle; if(!b||b.over) return prev;
+      const b=s.battle; if(!b||b.over||b.dark[a.i]) return prev;
       const id=b.hand[a.i], c=CARDS[id]; if(!c||c.cost>b.will) return prev;
-      b.will-=c.cost; b.hand.splice(a.i,1); b.discard.push(id);
-      const blind=b.taken.includes("ribbon");
-      const hit=n=>{ const d=blind?Math.floor(n/2):n; b.shadeHp=Math.max(0,b.shadeHp-d); return d; };
+      b.will-=c.cost; b.hand.splice(a.i,1); b.dark.splice(a.i,1); b.discard.push(id);
+      const blind=b.foe==="shade"&&b.taken.includes("ribbon");
+      const hit=n=>{ const d=blind?Math.floor(n/2):n; b.foeHp=Math.max(0,b.foeHp-d); return d; };
       if(id==="pen") b.log=`You strike with the pen. ${hit(3)} damage${blind?", swinging blind":""}.`;
       if(id==="still"){ b.block+=4; b.log="You hold still and it loses track of you. Block 4."; }
       if(id==="flower"){ b.hp=Math.min(b.maxHp,b.hp+3); b.log="You remember her face. Presence +3."; }
       if(id==="coin"){ const d=hit(2); b.weaken+=3; b.log=`The coin's cold bites into it. ${d} damage, and it slows.`; }
       if(id==="ribbon") b.log=`You lash it with the burned ribbon. ${hit(7)} damage.`;
       if(id==="glance"){ drawCards(b,2); b.log="Maren looks your way. You draw 2."; }
-      while(b.grips.length && b.shadeHp<=b.grips[0]){
+      if(id==="taper"){ b.dark=b.dark.map(()=>false); drawCards(b,1); b.log="The taper flares. Every card in your hand comes into the light, and you draw 1."; }
+      if(id==="name"){ const d=hit(3); b.block+=3; b.log=`You say your name. ${d} damage, and block 3.`; }
+      if(id==="candle"){ const d=hit(4), j=b.dark.indexOf(true); if(j>=0) b.dark[j]=false; b.log=`The candle's flame licks at it. ${d} damage${j>=0?", and a dark card comes into the light":""}.`; }
+      while(b.grips.length && b.foeHp<=b.grips[0]){
         b.grips.shift();
         if(b.taken.length){ const r=b.taken.pop(); b.discard.push(r); b.log+=` It loses its grip on the ${CARDS[r].name.toLowerCase()}.`; }
       }
-      if(b.shadeHp<=0){ b.over="won"; b.log="It comes apart like smoke through a keyhole."; }
+      if(b.foeHp<=0){ b.over="won"; b.log=FOES[b.foe].win; }
       return s;
     }
     case "END_TURN":{
       const b=s.battle; if(!b||b.over) return prev;
-      const it=INTENTS[b.turn%INTENTS.length];
-      b.discard.push(...b.hand); b.hand=[];
+      const foe=FOES[b.foe], it=foe.intents[b.turn%foe.intents.length];
+      b.discard.push(...b.hand); b.hand=[]; b.dark=[];
       let note="";
       if(it.kind==="grasp"){
-        const pool=[...b.draw.map((id,i)=>({id,from:"draw",i})),...b.discard.map((id,i)=>({id,from:"discard",i}))];
-        const pref=pool.filter(p=>!CARDS[p.id].starter); const pick=(pref.length?pref:pool)[Math.floor(Math.random()*(pref.length?pref.length:pool.length))];
-        if(pick){ b[pick.from].splice(pick.i,1); b.taken.push(pick.id); note=` It tears away your ${CARDS[pick.id].name.toLowerCase()}.`;
-          if(pick.id==="flower") note+=" Maren flickers out of the world.";
-          if(pick.id==="ribbon") note+=" It slips half out of sight."; }
+        const pool=[...b.draw.map((id,i)=>({id,from:"draw",i})),...b.discard.map((id,i)=>({id,from:"discard",i}))].filter(p=>!CARDS[p.id].keep);
+        const pref=pool.filter(p=>!CARDS[p.id].starter), from=pref.length?pref:pool, pick=from[Math.floor(Math.random()*from.length)];
+        if(pick){ b[pick.from].splice(pick.i,1); b.taken.push(pick.id); note=" "+foe.take(CARDS[pick.id].name.toLowerCase());
+          if(b.foe==="shade"&&pick.id==="flower") note+=" Maren flickers out of the world.";
+          if(b.foe==="shade"&&pick.id==="ribbon") note+=" It slips half out of sight."; }
       }
+      if(it.kind==="snuff") b.snuffed=true;
       const dmg=Math.max(0,it.dmg-b.weaken); b.weaken=0;
       const through=Math.max(0,dmg-b.block); b.hp=Math.max(0,b.hp-through); b.block=0; b.turn++;
-      b.log=`It ${it.kind==="smother"?"smothers you":it.kind==="grasp"?"reaches into you":"lunges"}. You lose ${through} presence.${note}`;
-      if(b.hp<=0){ b.over="lost"; b.log="It pushes you out of itself."; return s; }
-      b.will=TUNING.will; drawCards(b,TUNING.draw); return s;
+      b.log=`It ${foe.verbs[it.kind]}. You lose ${through} presence.${note}`;
+      if(b.hp<=0){ b.over="lost"; b.log=foe.lose; return s; }
+      b.will=TUNING.will; drawCards(b,TUNING.draw);
+      darken(b,b.snuffed?b.hand.length:foe.dark); b.snuffed=false;
+      return s;
     }
     case "CLAIM":{
-      s.found.push("glance"); s.won=true; s.mode="street"; s.battle=null; s.lastFound={id:"glance",at:Date.now()};
+      if(!s.battle) return prev;
+      const foe=s.battle.foe; s.mode="street"; s.battle=null;
+      if(foe==="chandler"){
+        s.found.push("candle"); s.chapelWon=true; s.lastFound={id:"candle",at:Date.now()};
+        return say(s,"The Chandler is gone. One by one the candles on the altar take light, and the shapes in the pews sharpen into people: a lamplighter, a girl in a Sunday collar, a cooper with sawdust in his sleeves. People from the street, written over and kept here.\n\nNone of them look at you yet. But somewhere outside, by the well, someone heard you say your name.");
+      }
+      s.found.push("glance"); s.won=true; s.lastFound={id:"glance",at:Date.now()};
       return say(s,"The shade is gone. Across the street, Maren's head turns, slowly, until she is almost looking at you. A baker has appeared outside the bakery, frozen mid-step.");
     }
     case "RETREAT":{
-      const lost=s.battle.taken; s.found=s.found.filter(id=>!lost.includes(id)); s.mode="street"; s.battle=null;
+      if(!s.battle) return prev;
+      const foe=s.battle.foe, lost=s.battle.taken; s.found=s.found.filter(id=>!lost.includes(id)); s.mode="street"; s.battle=null;
       const names=lost.map(id=>CARDS[id].name.toLowerCase());
-      return say(s,"You're on the cobbles again, and the street is thinner than before."+(names.length?` You've lost the ${names.join(" and the ")}; you'll have to find ${names.length>1?"them":"it"} again.`:" You kept everything you came in with."));
+      const tail=names.length?` You've lost the ${names.join(" and the ")}; you'll have to find ${names.length>1?"them":"it"} again.`:" You kept everything you came in with.";
+      if(foe==="chandler"){ s.player={...CHAPEL.entry}; return say(s,"You come to by the chapel door, and the dark is thicker than before."+tail); }
+      return say(s,"You're on the cobbles again, and the street is thinner than before."+tail);
     }
     case "RESET": return initialState();
   }
@@ -270,14 +374,14 @@ function renderLedger(){
   const ol=$("entries"); ol.innerHTML="";
   const rows=[{name:"Clerk's pen ×3, hold still ×3",sight:"The street, and nobody on it."},
     ...state.found.map(id=>({id,name:CARDS[id].name,sight:CARDS[id].reveal}))];
-  for(let i=0;i<7;i++){
+  for(let i=0;i<Math.max(7,rows.length);i++){
     const r=rows[i], li=document.createElement("li");
     li.innerHTML=`<span class="n">${i+1}</span><span class="t">${r?`${esc(r.name)}<span class="s">${esc(r.sight)}</span>`:""}</span>`;
     if(r&&r.id&&!shownFound.includes(r.id)) li.classList.add("new");
     ol.appendChild(li);
   }
   shownFound=[...state.found];
-  $("sub").textContent=state.won?"Someone on this street can see you now.":"What you hold is what you can see.";
+  $("sub").textContent=state.chapelWon?"Someone on this street can hear you now.":has(state,"name")?"You have a name again.":state.won?"Someone on this street can see you now.":"What you hold is what you can see.";
 }
 function renderNarration(){
   $("say").textContent=state.say.text;
@@ -291,27 +395,29 @@ function renderBattle(){
   $("street").style.display=on?"none":"block"; $("over").style.display=on?"none":"block";
   $("hint").style.visibility=on?"hidden":"visible";
   if(!on){ el.innerHTML=""; return; }
-  const b=state.battle, it=INTENTS[b.turn%INTENTS.length];
-  const seeing=!b.taken.includes("flower");
-  let h=`<h2>The tallow shade</h2>${bar(b.shadeHp,b.shadeMax,"foe")}
-    <div class="row"><span>${b.shadeHp} of ${b.shadeMax}</span>${b.taken.includes("ribbon")?"<span>half out of sight: your hits do half</span>":""}</div>
+  const b=state.battle, foe=FOES[b.foe], it=foe.intents[b.turn%foe.intents.length], shade=b.foe==="shade";
+  const seeing=!(shade&&b.taken.includes("flower"));
+  let h=`<h2>${foe.name}</h2>${bar(b.foeHp,b.foeMax,"foe")}
+    <div class="row"><span>${b.foeHp} of ${b.foeMax}</span>${shade&&b.taken.includes("ribbon")?"<span>half out of sight: your hits do half</span>":""}</div>
     ${b.taken.length?`<p class="held">It is holding your ${b.taken.map(id=>CARDS[id].name.toLowerCase()).join(", ")}. Hurt it enough and it lets go.</p>`:""}
     ${b.over?"":`<p class="intent ${seeing?"":"hidden"}">${seeing?it.seen+(b.weaken?` (${b.weaken} weaker)`:""):"Maren is gone. You can't tell what it will do."}</p>`}
     <p class="log">${esc(b.log)}</p>
     <div class="you"><div class="row"><span>Your presence ${b.hp} of ${b.maxHp}</span>${b.block?`<span>block ${b.block}</span>`:""}<span>will ${"●".repeat(b.will)}${"○".repeat(Math.max(0,TUNING.will-b.will))}</span></div>${bar(b.hp,b.maxHp,"you")}`;
   if(b.over==="won"){ h+=`</div><div class="choices"><button id="go">Take what it leaves behind</button></div>`; el.innerHTML=h; $("go").onclick=()=>dispatch({type:"CLAIM"}); $("go").focus(); return; }
-  if(b.over==="lost"){ h+=`</div><div class="choices"><button id="go">Come back to the street</button></div>`; el.innerHTML=h; $("go").onclick=()=>dispatch({type:"RETREAT"}); $("go").focus(); return; }
+  if(b.over==="lost"){ h+=`</div><div class="choices"><button id="go">${shade?"Come back to the street":"Come back to the chapel"}</button></div>`; el.innerHTML=h; $("go").onclick=()=>dispatch({type:"RETREAT"}); $("go").focus(); return; }
   h+=`<div class="hand">${b.hand.map((id,i)=>{const c=CARDS[id];
+     if(b.dark[i]) return `<button class="card dark" data-i="${i}" data-dark="1" ${b.will<TUNING.lightCost?"disabled":""}><span class="cost">${"●".repeat(TUNING.lightCost)}</span><b>A dark card</b><small>Spend ${TUNING.lightCost} will to bring it into the light.</small></button>`;
      return `<button class="card ${c.starter?"":"found"}" data-i="${i}" ${c.cost>b.will?"disabled":""}><span class="cost">${"●".repeat(c.cost)}</span><b>${c.name}</b><small>${c.battle}</small>${c.sight?`<i>Sight: ${c.sight}</i>`:""}</button>`}).join("")}</div>
      <div class="choices"><button id="end">End the turn</button></div></div>`;
   el.innerHTML=h;
-  el.querySelectorAll(".card").forEach(x=>x.onclick=()=>dispatch({type:"PLAY",i:+x.dataset.i}));
+  el.querySelectorAll(".card").forEach(x=>x.onclick=()=>dispatch({type:x.dataset.dark?"LIGHT":"PLAY",i:+x.dataset.i}));
   $("end").onclick=()=>dispatch({type:"END_TURN"});
 }
 function render(){
   renderLedger(); renderNarration(); renderBattle();
   const g=TUNING.grayByFound[Math.min(state.found.length,TUNING.grayByFound.length-1)];
   $("street").style.filter=`grayscale(${g}) contrast(${0.85+0.15*(1-g)})`;
+  $("street").setAttribute("aria-label",state.scene==="chapel"?"Inside the chapel. Use arrow keys to walk, or tap a place.":"The street. Use arrow keys to walk, or tap a place.");
 }
 
 /* ===== Street canvas ===== */
@@ -382,10 +488,9 @@ function drawStreet(t){
 function drawOver(t){
   og.clearRect(0,0,192,128);
   const s=state, pulse=reduced?0.25:0.16+0.14*(0.5+0.5*Math.sin(t/320)), blink=reduced||Math.floor(t/500)%2;
-  const halo=(x,y)=>{ qx(x*T-1,y*T+5,18,9,`rgba(255,120,90,${pulse*0.6})`); qx(x*T+1,y*T+6,14,7,`rgba(255,120,90,${pulse})`); };
-  if(pickupAvailable(s,"flower")){ const ox=3*T, oy=4*T; halo(3,4); qx(ox+7,oy+6,1,6,"#5f7a3a"); qx(ox+5,oy+5,5,3,"#8a5aa8"); qx(ox+6,oy+4,3,1,"#a57ac2"); if(blink) qx(ox+7,oy+6,1,1,"#fff"); }
+  if(pickupAvailable(s,"flower")){ const ox=3*T, oy=4*T; halo(3,4,pulse); qx(ox+7,oy+6,1,6,"#5f7a3a"); qx(ox+5,oy+5,5,3,"#8a5aa8"); qx(ox+6,oy+4,3,1,"#a57ac2"); if(blink) qx(ox+7,oy+6,1,1,"#fff"); }
   if(pickupAvailable(s,"coin")){ const ox=6*T, oy=5*T; qx(ox+5,oy+6,6,5,`rgba(170,210,255,${pulse})`); qx(ox+7,oy+8,2,2,"#cfe3f5"); if(blink) qx(ox+7,oy+8,1,1,"#fff"); }
-  if(pickupAvailable(s,"ribbon")){ const ox=10*T, oy=5*T; halo(10,5); qx(ox+2,oy+8,2,2,"#c0392b"); qx(ox+4,oy+9,7,2,"#c0392b"); qx(ox+5,oy+8,3,1,"#e8644f"); qx(ox+11,oy+8,3,3,"#1a1a1a"); if(blink) qx(ox+13,oy+8,1,1,"#ff9a3c"); }
+  if(pickupAvailable(s,"ribbon")){ const ox=10*T, oy=5*T; halo(10,5,pulse); qx(ox+2,oy+8,2,2,"#c0392b"); qx(ox+4,oy+9,7,2,"#c0392b"); qx(ox+5,oy+8,3,1,"#e8644f"); qx(ox+11,oy+8,3,3,"#1a1a1a"); if(blink) qx(ox+13,oy+8,1,1,"#ff9a3c"); }
   if(shadeVisible(s)){
     const ox=SPOT.shade.x*T, oy=SPOT.shade.y*T, a=fadeIn("ribbon",t)*(reduced?0.85:0.7+0.2*Math.sin(t/230)), sway=reduced?0:Math.round(Math.sin(t/500));
     og.globalAlpha=a;
@@ -394,7 +499,71 @@ function drawOver(t){
     og.globalAlpha=1;
   }
 }
-function loop(t){ if(state.mode!=="battle"){ drawStreet(t); drawOver(t); } requestAnimationFrame(loop); }
+/* ===== Chapel canvas ===== */
+function drawChapel(t){
+  const s=state, lit=s.chapelWon, fl=reduced?0:(Math.sin(t/180)>0?1:0);
+  px(0,0,192,128,"#2e2b27");
+  // back wall, window, altar
+  px(16,0,160,32,"#46423a");
+  for(let i=0;i<14;i++) px(16+(i*37)%150,4+(i*11)%24,10,1,"#3c3832");
+  px(84,1,24,22,"#2a2d33");
+  const panes=lit?["#9a5a72","#5a7a9c","#6f9a5a","#b0904a"]:["#5a4650","#46505c","#4c5a46","#5c5646"];
+  px(86,3,9,9,panes[0]); px(97,3,9,9,panes[1]); px(86,13,9,8,panes[2]); px(97,13,9,8,panes[3]);
+  px(78,18,36,14,"#6a5a48"); px(78,18,36,4,"#e4ddc8");
+  for(let k=0;k<6;k++){ const cx=81+k*6, h=3+(k*5)%4; px(cx,18-h,2,h,"#e8e2cc"); if(lit) px(cx,15-h-fl*(k%2),2,3,"#ffcf6b"); }
+  // floor, aisle runner, door
+  for(let y=2;y<7;y++)for(let x=1;x<11;x++){ px(x*T,y*T,T,T,"#57524a"); px(x*T,y*T,T,1,"#4a463f"); px(x*T,y*T,1,T,"#4a463f"); }
+  px(5*T+4,2*T,24,5*T,"#5e2e2a"); px(5*T+5,2*T,22,5*T,"#6a3430");
+  px(80,112,32,16,"#8a8578"); px(80,112,32,2,"#a9a28f"); px(78,108,2,20,"#3a3630"); px(112,108,2,20,"#3a3630");
+  // candle stand
+  { const ox=CHAPEL.stand.x*T, oy=CHAPEL.stand.y*T;
+    px(ox+7,oy+4,2,11,"#3a3a3a"); px(ox+3,oy+3,10,2,"#3a3a3a"); px(ox+4,oy+14,8,2,"#3a3a3a");
+    px(ox+4,oy,1,3,"#e8e2cc"); px(ox+11,oy,1,3,"#e8e2cc"); px(ox+7,oy-1,2,4,"#efe6cf"); px(ox+7,oy-4-fl,2,3,"#ffcf6b");
+    if(!has(s,"taper")) px(ox+2,oy+12,10,1,"#efe6cf"); }
+  // lectern and register
+  { const ox=CHAPEL.lectern.x*T, oy=CHAPEL.lectern.y*T;
+    px(ox+6,oy+6,4,9,"#5a3b26"); px(ox+3,oy+14,10,2,"#4a301f");
+    px(ox+2,oy+2,12,5,"#d8d0b8"); px(ox+7,oy+2,1,5,"#8a7a60");
+    if(!has(s,"name")) px(ox+3,oy+3,10,3,"#ece2c4"); else for(let r=0;r<3;r++){ px(ox+3,oy+3+r,3,1,"#5a5246"); px(ox+9,oy+3+r,3,1,"#5a5246"); } }
+  // pews, then the people in them
+  for(const [x,y] of CHAPEL.pews){ const ox=x*T, oy=y*T; px(ox,oy+3,T,3,"#4a301f"); px(ox,oy+9,T,3,"#5a3b26"); px(ox+1,oy+12,2,4,"#3a2618"); px(ox+13,oy+12,2,4,"#3a2618"); }
+  const ghostA=lit?0.9:(has(s,"name")?0.3:0.16)+(reduced?0:0.05*Math.sin(t/600));
+  for(const gh of CHAPEL.ghosts) if(gh.look) sprite(g,gh.x,gh.y,gh.look,ghostA*(lit?fadeIn("candle",t):1));
+  // clerk: more solid once you have your name back
+  const flick=reduced?0.75:0.7+0.08*Math.sin(t/400);
+  sprite(g,s.player.x,s.player.y,{hair:"#3a2a1e",face:"#e0b894",coat:"#26335a",quill:true},has(s,"name")?0.92:flick);
+}
+
+function drawChapelOver(t){
+  og.clearRect(0,0,192,128);
+  const s=state, pulse=reduced?0.25:0.16+0.14*(0.5+0.5*Math.sin(t/320));
+  if(!s.chapelWon){
+    // the dark: you only see what's near you, near the one candle, and near the door
+    const r=has(s,"taper")?3.2:1.6, pl=s.player;
+    for(let y=0;y<8;y++)for(let x=0;x<12;x++){
+      const fall=(cx,cy,rad)=>Math.max(0,(Math.hypot(x-cx,y-cy)-rad)*0.32);
+      const a=Math.min(0.88,fall(pl.x,pl.y,r),fall(CHAPEL.stand.x,CHAPEL.stand.y,1),fall(5.5,7,0.8));
+      if(a>0) qx(x*T,y*T,T,T,`rgba(8,8,12,${a})`);
+    }
+  }
+  if(pickupAvailable(s,"taper")) halo(CHAPEL.stand.x,CHAPEL.stand.y,pulse);
+  if(pickupAvailable(s,"name")) halo(CHAPEL.lectern.x,CHAPEL.lectern.y,pulse);
+  if(chandlerVisible(s)){
+    const ox=CHAPEL.chandler.x*T, oy=CHAPEL.chandler.y*T, sway=reduced?0:Math.round(Math.sin(t/650)), fl=reduced?0:(Math.sin(t/150)>0?1:0);
+    og.globalAlpha=fadeIn("name",t);
+    qx(ox+3,oy-12,10,27,"#3b3026"); qx(ox+5,oy-4,6,17,"#d8cfb8");
+    qx(ox+4+sway,oy-18,8,7,"#cdc2a4"); qx(ox+6+sway,oy-15,1,1,"#111"); qx(ox+9+sway,oy-15,1,1,"#111");
+    qx(ox+5+sway,oy-11,1,3,"#efe6cf"); qx(ox+10+sway,oy-11,1,2,"#efe6cf");
+    qx(ox+13,oy-6,2,7,"#efe6cf"); qx(ox+13,oy-9-fl,2,3,"#ffcf6b"); qx(ox,oy-4,3,2,"#2a2a2a"); qx(ox-1,oy-6,2,3,"#2a2a2a");
+    og.globalAlpha=1;
+  }
+}
+function halo(x,y,pulse){ qx(x*T-1,y*T+5,18,9,`rgba(255,120,90,${pulse*0.6})`); qx(x*T+1,y*T+6,14,7,`rgba(255,120,90,${pulse})`); }
+
+function loop(t){
+  if(state.mode!=="battle"){ if(state.scene==="chapel"){ drawChapel(t); drawChapelOver(t); } else { drawStreet(t); drawOver(t); } }
+  requestAnimationFrame(loop);
+}
 
 /* ===== Input ===== */
 const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],W:[0,-1],S:[0,1],A:[-1,0],D:[1,0]};
