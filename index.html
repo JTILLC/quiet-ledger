@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Quiet Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root{
+  --page:#c3cac4; --text:#1f2a36; --muted:#4f5b66;
+  --paper:#e4e9dc; --rule:#a9bccd; --margin:#b0473f;
+  --ink:#1d2b4a; --void:#2b3137; --voidtext:#dfe3d6; --dim:#a9b2b8;
+  --slip:#eef1e7; --slipline:#c5cfbf;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --page:#1b2025; --text:#d9ded3; --muted:#9aa5ad; --paper:#cfd5c6; --rule:#97aabb; --void:#11151a; }
+}
+:root[data-theme="dark"]{ --page:#1b2025; --text:#d9ded3; --muted:#9aa5ad; --paper:#cfd5c6; --rule:#97aabb; --void:#11151a; }
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100%;background:var(--page);color:var(--text);
+  font-family:"IM Fell English","Iowan Old Style",Georgia,"Times New Roman",serif;font-size:18px;line-height:1.5}
+.app{max-width:1120px;margin:0 auto;padding:16px;display:grid;gap:20px;grid-template-columns:1fr}
+@media (min-width:900px){.app{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start;padding:28px}}
+.stage{position:relative;background:var(--void);border-radius:3px;overflow:hidden}
+canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;image-rendering:pixelated;image-rendering:crisp-edges}
+#street{cursor:pointer;transition:filter 2.8s ease}
+#street:focus-visible{outline:3px solid var(--margin);outline-offset:-3px}
+#over{position:absolute;top:0;left:0;width:100%;pointer-events:none}
+.narration{min-height:7.5em;padding:14px 2px 0}
+.narration p{margin:0 0 10px;max-width:62ch}
+.choices{display:flex;flex-wrap:wrap;gap:10px}
+button{font:inherit;font-size:17px;color:var(--ink);background:var(--slip);border:1px solid var(--slipline);border-radius:2px;padding:7px 14px;cursor:pointer}
+button:hover:not(:disabled){background:#fff}
+button:focus-visible{outline:3px solid var(--margin);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+.hint{font-style:italic;color:var(--muted);font-size:15px;margin:6px 2px 0}
+
+/* battle */
+.battle{color:var(--voidtext);padding:18px 18px 20px;display:none}
+.battle.on{display:block}
+.battle h2{font-weight:400;font-style:italic;font-size:26px;margin:0}
+.bar{display:flex;gap:2px;max-width:280px;margin:4px 0}
+.bar span{flex:1;height:10px;background:#3d454c}
+.bar.foe span.f{background:#b9a27a}
+.bar.you span.f{background:#9fb3c8}
+.row{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:15.5px;color:var(--dim)}
+.intent{border-left:2px solid var(--margin);padding:2px 0 2px 10px;margin:10px 0;font-size:16px}
+.intent.hidden{border-color:#555;color:var(--dim);font-style:italic}
+.held{font-size:15px;color:#d9b38c;margin:0}
+.log{font-style:italic;min-height:1.5em;margin:10px 0 12px;color:#e8e2cf}
+.you{margin-top:14px;padding-top:12px;border-top:1px solid #3d454c}
+.hand{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:10px 0 12px}
+.card{text-align:left;display:flex;flex-direction:column;gap:2px;padding:9px 11px;background:var(--slip);border-left:4px solid var(--ink)}
+.card.found{border-left-color:var(--margin)}
+.card b{font-weight:400;font-size:17.5px}
+.card small{font-size:14px;color:#46525d;line-height:1.35}
+.card i{font-size:13.5px;color:var(--margin)}
+.card .cost{font-size:12px;color:var(--ink);letter-spacing:2px;min-height:1em}
+
+/* ledger / binder */
+.ledger{background:var(--paper);color:var(--ink);padding:22px 22px 26px 0;border-radius:2px;box-shadow:6px 6px 0 -1px #00000012}
+.ledger h1{font-weight:400;font-style:italic;font-size:30px;margin:0 0 4px;padding-left:64px}
+.ledger .sub{padding-left:64px;margin:0 0 12px;font-size:15px;color:var(--muted)}
+.ledger ol{list-style:none;margin:0;padding:0}
+.ledger li{display:grid;grid-template-columns:48px 1fr;column-gap:16px;min-height:2.6em;padding:.4em 0;border-bottom:1px solid var(--rule)}
+.ledger li .n{border-right:2px solid var(--margin);text-align:right;padding-right:10px;color:var(--muted);font-size:15px;line-height:1.7}
+.ledger li .t{font-style:italic;font-size:19px;line-height:1.35}
+.ledger li .s{display:block;font-style:normal;font-size:14.5px;color:var(--muted)}
+.ledger li.new .t{animation:ink 1.6s ease}
+@keyframes ink{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:none}}
+@media (prefers-reduced-motion: reduce){#street{transition:none}.ledger li.new .t{animation:none}}
+</style>
+</head>
+<body>
+<main class="app">
+  <section aria-label="The street">
+    <div class="stage">
+      <canvas id="street" width="192" height="128" tabindex="0" style="filter:grayscale(1) contrast(.85)" aria-label="The street. Use arrow keys to walk, or tap a place."></canvas>
+      <canvas id="over" width="192" height="128" aria-hidden="true"></canvas>
+      <div class="battle" id="battle" aria-live="polite"></div>
+    </div>
+    <div class="narration" aria-live="polite"><p id="say"></p><div class="choices" id="choices"></div></div>
+    <p class="hint" id="hint">Arrow keys or WASD to walk, or tap the street. Walk into things to look at them.</p>
+  </section>
+  <aside class="ledger" aria-label="The ledger">
+    <h1>The Quiet Ledger</h1>
+    <p class="sub" id="sub">What you hold is what you can see.</p>
+    <ol id="entries"></ol>
+  </aside>
+</main>
+<script>
+/* ===== Tuning (isolated) ===== */
+const TUNING = {
+  tile:16, cols:12, rows:8, stepMs:105,
+  hp:14, will:3, draw:4, shadeHp:34, grips:[23,12],
+  grayByFound:[1,.8,.6,.4,.12],
+};
+
+/* ===== Content ===== */
+const CARDS = {
+  pen:   {name:"Clerk's pen",    cost:1, battle:"Deal 3.", starter:true},
+  still: {name:"Hold still",     cost:1, battle:"Block 4.", starter:true},
+  flower:{name:"Pressed flower", cost:1, battle:"Regain 3 presence.", sight:"Maren, at the well", reveal:"Lets you see Maren, at the well."},
+  coin:  {name:"Cold coin",      cost:1, battle:"Deal 2. Its next attack is 3 weaker.", sight:"the traces it leaves", reveal:"Lets you see the traces it leaves."},
+  ribbon:{name:"Burned ribbon",  cost:2, battle:"Deal 7.", sight:"the shade itself", reveal:"Lets you see the shade itself."},
+  glance:{name:"Maren's glance", cost:0, battle:"Draw 2.", sight:"lets Maren see you", reveal:"Lets Maren see you, a little."},
+};
+const STARTER = ["pen","pen","pen","still","still","still"];
+const PICKUPS = { flower:{x:3,y:4,needs:null}, coin:{x:6,y:5,needs:"flower",inWell:true}, ribbon:{x:10,y:5,needs:"coin"} };
+const INTENTS = [
+  {kind:"lunge", dmg:6, seen:"Maren's eyes go to your throat. It will lunge for 6."},
+  {kind:"grasp", dmg:3, seen:"Maren's eyes go to your hands. It will tear a card away (3 damage)."},
+  {kind:"smother", dmg:9, seen:"Maren covers her mouth. It will smother you for 9."},
+  {kind:"lunge", dmg:7, seen:"Maren's eyes go to your throat. It will lunge for 7."},
+];
+const SPOT = { records:{x:2,y:2}, bakeryDoor:{x:6,y:2}, chapel:{x:9,y:2}, well:{x:6,y:5}, maren:{x:7,y:5}, shade:{x:9,y:3}, baker:{x:5,y:3} };
+
+const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const has=(s,id)=>s.found.includes(id);
+const shadeVisible=s=>has(s,"ribbon")&&!s.won;
+
+function initialState(){
+  return { mode:"street", player:{x:2,y:3}, found:[], won:false,
+    say:{text:"You wake standing in the middle of a street. No one is here. Your breath doesn't fog. Near the records room, one small thing still has colour in it.",choices:[]},
+    battle:null };
+}
+
+function thingAt(x,y,s){
+  const at=p=>p.x===x&&p.y===y;
+  if(at(SPOT.well)) return "well";
+  if(at(SPOT.maren)&&has(s,"flower")) return "maren";
+  if(at(SPOT.shade)&&shadeVisible(s)) return "shade";
+  if(at(SPOT.baker)&&s.won) return "baker";
+  for(const k of ["records","bakeryDoor","chapel"]) if(at(SPOT[k])) return k;
+  return null;
+}
+function walkable(x,y,s){
+  if(x<1||x>10||y<3||y>6) return false;
+  const t=thingAt(x,y,s); return !t;
+}
+function pickupAvailable(s,id){ const p=PICKUPS[id]; return !has(s,id)&&(!p.needs||has(s,p.needs)); }
+
+function say(s,text,choices=[]){ s.say={text,choices}; return s; }
+const FIGHT=[{label:"Face it",action:{type:"START_BATTLE"}},{label:"Back away",action:{type:"DISMISS"}}];
+
+function pickup(s,id){
+  s.found.push(id); s.lastFound={id,at:Date.now()};
+  if(id==="flower") return say(s,"A pressed flower, violet gone to brown. The moment your hand closes on it, there is a woman by the well who was not there before. She doesn't blink. She's staring at the chapel steps.");
+  if(id==="coin") return say(s,"At the bottom of the dry well, a coin so cold it burns. Now you can see frost crossing the cobbles near the chapel, one patch at a time, and the woman's eyes following it.");
+  if(id==="ribbon") return say(s,"A ribbon, burned at one end. You close your hand on it and the thing on the chapel steps is suddenly there: tall, smoke and old tallow. It turns its head. For the first time, something on this street sees you.",FIGHT);
+}
+
+function interact(s,id){
+  switch(id){
+    case "records": return say(s,"The records room. A desk, a ledger, and a chair worn to the shape of someone who sat there a long time.");
+    case "bakeryDoor": return say(s,"The bakery door doesn't open. It has no inside yet.");
+    case "well":
+      if(pickupAvailable(s,"coin")) return pickup(s,"coin");
+      return say(s,has(s,"coin")?"Dry. Something down there used to be cold.":"The well is dry. The rope goes down and stops at nothing.");
+    case "maren":
+      if(s.won) return say(s,"She looks at you, or near you, the way you'd look at someone through a fogged window. “You're the clerk. You've stood at that desk three winters. I thought you were frost on the glass.”");
+      if(has(s,"ribbon")) return say(s,"“It's on the steps,” she whispers. Not to you. She doesn't know you're here.");
+      if(has(s,"coin")) return say(s,"She shivers as you come close and pulls her shawl tight. She's looking past you, at the frost.");
+      return say(s,"She doesn't move. Her breath fogs in the cold. Yours doesn't.");
+    case "shade": return say(s,"It waits on the chapel steps, and it is watching you.",FIGHT);
+    case "baker": return say(s,"A baker, frozen mid-step with a tray of loaves. He isn't looking at anything yet.");
+    case "chapel":
+      if(s.won){ s.mode="end"; return say(s,"The chapel door is open now. Candlelight, and the smell of tallow. Whatever waits inside, you'll need more cards to see it.",[{label:"Begin again",action:{type:"RESET"}}]); }
+      return say(s,"The chapel door won't open. Something is holding it shut from your side of things.");
+  }
+  return s;
+}
+
+function drawCards(b,n){
+  for(let i=0;i<n;i++){
+    if(!b.draw.length){ b.draw=shuffle(b.discard); b.discard=[]; }
+    if(!b.draw.length) break;
+    b.hand.push(b.draw.pop());
+  }
+}
+
+function reduce(prev,a){
+  const s=structuredClone(prev);
+  switch(a.type){
+    case "STEP":{
+      if(s.mode!=="street") return prev;
+      const x=s.player.x+a.dx, y=s.player.y+a.dy;
+      if(walkable(x,y,s)){
+        s.player={x,y}; s.say={text:s.say.text,choices:[]};
+        for(const id of ["flower","ribbon"]){ const p=PICKUPS[id]; if(p.x===x&&p.y===y&&pickupAvailable(s,id)) return pickup(s,id); }
+        return s;
+      }
+      const t=thingAt(x,y,s); return t?interact(s,t):prev;
+    }
+    case "DISMISS": return say(s,"");
+    case "START_BATTLE":{
+      s.mode="battle"; s.say={text:"",choices:[]};
+      const b={hp:TUNING.hp,maxHp:TUNING.hp,block:0,will:TUNING.will,hand:[],draw:shuffle([...STARTER,...s.found]),discard:[],taken:[],
+        shadeHp:TUNING.shadeHp,shadeMax:TUNING.shadeHp,turn:0,weaken:0,grips:[...TUNING.grips],over:null,
+        log:"Every card you hold is a way of seeing it. It knows that."};
+      drawCards(b,TUNING.draw); s.battle=b; return s;
+    }
+    case "PLAY":{
+      const b=s.battle; if(!b||b.over) return prev;
+      const id=b.hand[a.i], c=CARDS[id]; if(!c||c.cost>b.will) return prev;
+      b.will-=c.cost; b.hand.splice(a.i,1); b.discard.push(id);
+      const blind=b.taken.includes("ribbon");
+      const hit=n=>{ const d=blind?Math.floor(n/2):n; b.shadeHp=Math.max(0,b.shadeHp-d); return d; };
+      if(id==="pen") b.log=`You strike with the pen. ${hit(3)} damage${blind?", swinging blind":""}.`;
+      if(id==="still"){ b.block+=4; b.log="You hold still and it loses track of you. Block 4."; }
+      if(id==="flower"){ b.hp=Math.min(b.maxHp,b.hp+3); b.log="You remember her face. Presence +3."; }
+      if(id==="coin"){ const d=hit(2); b.weaken+=3; b.log=`The coin's cold bites into it. ${d} damage, and it slows.`; }
+      if(id==="ribbon") b.log=`You lash it with the burned ribbon. ${hit(7)} damage.`;
+      if(id==="glance"){ drawCards(b,2); b.log="Maren looks your way. You draw 2."; }
+      while(b.grips.length && b.shadeHp<=b.grips[0]){
+        b.grips.shift();
+        if(b.taken.length){ const r=b.taken.pop(); b.discard.push(r); b.log+=` It loses its grip on the ${CARDS[r].name.toLowerCase()}.`; }
+      }
+      if(b.shadeHp<=0){ b.over="won"; b.log="It comes apart like smoke through a keyhole."; }
+      return s;
+    }
+    case "END_TURN":{
+      const b=s.battle; if(!b||b.over) return prev;
+      const it=INTENTS[b.turn%INTENTS.length];
+      b.discard.push(...b.hand); b.hand=[];
+      let note="";
+      if(it.kind==="grasp"){
+        const pool=[...b.draw.map((id,i)=>({id,from:"draw",i})),...b.discard.map((id,i)=>({id,from:"discard",i}))];
+        const pref=pool.filter(p=>!CARDS[p.id].starter); const pick=(pref.length?pref:pool)[Math.floor(Math.random()*(pref.length?pref.length:pool.length))];
+        if(pick){ b[pick.from].splice(pick.i,1); b.taken.push(pick.id); note=` It tears away your ${CARDS[pick.id].name.toLowerCase()}.`;
+          if(pick.id==="flower") note+=" Maren flickers out of the world.";
+          if(pick.id==="ribbon") note+=" It slips half out of sight."; }
+      }
+      const dmg=Math.max(0,it.dmg-b.weaken); b.weaken=0;
+      const through=Math.max(0,dmg-b.block); b.hp=Math.max(0,b.hp-through); b.block=0; b.turn++;
+      b.log=`It ${it.kind==="smother"?"smothers you":it.kind==="grasp"?"reaches into you":"lunges"}. You lose ${through} presence.${note}`;
+      if(b.hp<=0){ b.over="lost"; b.log="It pushes you out of itself."; return s; }
+      b.will=TUNING.will; drawCards(b,TUNING.draw); return s;
+    }
+    case "CLAIM":{
+      s.found.push("glance"); s.won=true; s.mode="street"; s.battle=null; s.lastFound={id:"glance",at:Date.now()};
+      return say(s,"The shade is gone. Across the street, Maren's head turns, slowly, until she is almost looking at you. A baker has appeared outside the bakery, frozen mid-step.");
+    }
+    case "RETREAT":{
+      const lost=s.battle.taken; s.found=s.found.filter(id=>!lost.includes(id)); s.mode="street"; s.battle=null;
+      const names=lost.map(id=>CARDS[id].name.toLowerCase());
+      return say(s,"You're on the cobbles again, and the street is thinner than before."+(names.length?` You've lost the ${names.join(" and the ")}; you'll have to find ${names.length>1?"them":"it"} again.`:" You kept everything you came in with."));
+    }
+    case "RESET": return initialState();
+  }
+  return prev;
+}
+
+/* ===== Store ===== */
+let state=initialState(), path=[], pathTimer=null;
+function dispatch(a){ const n=reduce(state,a); if(n!==state){ state=n; render(); } }
+const $=id=>document.getElementById(id);
+const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const esc=t=>t.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ===== Text rendering ===== */
+let shownFound=[];
+function renderLedger(){
+  const ol=$("entries"); ol.innerHTML="";
+  const rows=[{name:"Clerk's pen ×3, hold still ×3",sight:"The street, and nobody on it."},
+    ...state.found.map(id=>({id,name:CARDS[id].name,sight:CARDS[id].reveal}))];
+  for(let i=0;i<7;i++){
+    const r=rows[i], li=document.createElement("li");
+    li.innerHTML=`<span class="n">${i+1}</span><span class="t">${r?`${esc(r.name)}<span class="s">${esc(r.sight)}</span>`:""}</span>`;
+    if(r&&r.id&&!shownFound.includes(r.id)) li.classList.add("new");
+    ol.appendChild(li);
+  }
+  shownFound=[...state.found];
+  $("sub").textContent=state.won?"Someone on this street can see you now.":"What you hold is what you can see.";
+}
+function renderNarration(){
+  $("say").textContent=state.say.text;
+  const c=$("choices"); c.innerHTML="";
+  for(const ch of state.say.choices){ const b=document.createElement("button"); b.textContent=ch.label; b.onclick=()=>dispatch(ch.action); c.appendChild(b); }
+}
+function bar(n,max,cls){ return `<div class="bar ${cls}" aria-hidden="true">${Array.from({length:max},(_,i)=>`<span class="${i<n?"f":""}"></span>`).join("")}</div>`; }
+function renderBattle(){
+  const el=$("battle"), on=state.mode==="battle";
+  el.classList.toggle("on",on);
+  $("street").style.display=on?"none":"block"; $("over").style.display=on?"none":"block";
+  $("hint").style.visibility=on?"hidden":"visible";
+  if(!on){ el.innerHTML=""; return; }
+  const b=state.battle, it=INTENTS[b.turn%INTENTS.length];
+  const seeing=!b.taken.includes("flower");
+  let h=`<h2>The tallow shade</h2>${bar(b.shadeHp,b.shadeMax,"foe")}
+    <div class="row"><span>${b.shadeHp} of ${b.shadeMax}</span>${b.taken.includes("ribbon")?"<span>half out of sight: your hits do half</span>":""}</div>
+    ${b.taken.length?`<p class="held">It is holding your ${b.taken.map(id=>CARDS[id].name.toLowerCase()).join(", ")}. Hurt it enough and it lets go.</p>`:""}
+    ${b.over?"":`<p class="intent ${seeing?"":"hidden"}">${seeing?it.seen+(b.weaken?` (${b.weaken} weaker)`:""):"Maren is gone. You can't tell what it will do."}</p>`}
+    <p class="log">${esc(b.log)}</p>
+    <div class="you"><div class="row"><span>Your presence ${b.hp} of ${b.maxHp}</span>${b.block?`<span>block ${b.block}</span>`:""}<span>will ${"●".repeat(b.will)}${"○".repeat(Math.max(0,TUNING.will-b.will))}</span></div>${bar(b.hp,b.maxHp,"you")}`;
+  if(b.over==="won"){ h+=`</div><div class="choices"><button id="go">Take what it leaves behind</button></div>`; el.innerHTML=h; $("go").onclick=()=>dispatch({type:"CLAIM"}); $("go").focus(); return; }
+  if(b.over==="lost"){ h+=`</div><div class="choices"><button id="go">Come back to the street</button></div>`; el.innerHTML=h; $("go").onclick=()=>dispatch({type:"RETREAT"}); $("go").focus(); return; }
+  h+=`<div class="hand">${b.hand.map((id,i)=>{const c=CARDS[id];
+     return `<button class="card ${c.starter?"":"found"}" data-i="${i}" ${c.cost>b.will?"disabled":""}><span class="cost">${"●".repeat(c.cost)}</span><b>${c.name}</b><small>${c.battle}</small>${c.sight?`<i>Sight: ${c.sight}</i>`:""}</button>`}).join("")}</div>
+     <div class="choices"><button id="end">End the turn</button></div></div>`;
+  el.innerHTML=h;
+  el.querySelectorAll(".card").forEach(x=>x.onclick=()=>dispatch({type:"PLAY",i:+x.dataset.i}));
+  $("end").onclick=()=>dispatch({type:"END_TURN"});
+}
+function render(){
+  renderLedger(); renderNarration(); renderBattle();
+  const g=TUNING.grayByFound[Math.min(state.found.length,TUNING.grayByFound.length-1)];
+  $("street").style.filter=`grayscale(${g}) contrast(${0.85+0.15*(1-g)})`;
+}
+
+/* ===== Street canvas ===== */
+const cv=$("street"), g=cv.getContext("2d"), ov=$("over"), og=ov.getContext("2d"), T=TUNING.tile;
+const px=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x,y,w,h)};
+const qx=(x,y,w,h,c)=>{og.fillStyle=c;og.fillRect(x,y,w,h)};
+const DRIFT=[[9,3],[10,3],[10,4],[9,4],[8,3],[8,4]];
+function shadePos(t){ return shadeVisible(state)?[SPOT.shade.x,SPOT.shade.y]:DRIFT[Math.floor((reduced?0:t)/1500)%DRIFT.length]; }
+function fadeIn(id,t){ const lf=state.lastFound; if(!lf||lf.id!==id||reduced) return 1; return Math.min(1,(Date.now()-lf.at)/1800); }
+
+function sprite(ctx,x,y,c,alpha=1){
+  const ox=x*T, oy=y*T, f=(a,b,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(ox+a,oy+b,w,h)};
+  ctx.globalAlpha=alpha;
+  f(4,15,8,1,"#00000033"); f(5,1,6,3,c.hair); f(5,4,6,4,c.face);
+  if(c.eyes){ const [ex,ey]=c.eyes; f(5,5,2,2,"#f4f0e6"); f(9,5,2,2,"#f4f0e6"); f(5+ex,5+ey,1,1,"#111"); f(9+ex,5+ey,1,1,"#111"); }
+  else { f(6,5,1,1,"#2a2a2a"); f(9,5,1,1,"#2a2a2a"); }
+  f(4,8,8,6,c.coat); if(c.apron) f(5,9,6,5,c.apron); if(c.shawl){ f(3,8,10,3,c.shawl); }
+  f(5,14,2,2,"#2a2420"); f(9,14,2,2,"#2a2420");
+  if(c.quill){ f(12,6,1,5,"#e8e2d0"); f(12,11,1,1,"#1d2b4a"); }
+  if(c.tray){ f(1,7,6,2,"#8a6a3a"); f(2,6,4,1,"#d2a35a"); }
+  ctx.globalAlpha=1;
+}
+
+function drawStreet(t){
+  const s=state, won=s.won;
+  for(let y=3;y<8;y++)for(let x=0;x<12;x++){ px(x*T,y*T,T,T,"#7b7468"); px(x*T+2,y*T+3,5,3,"#6c655a"); px(x*T+9,y*T+9,5,3,"#6c655a"); px(x*T+4,y*T+11,2,1,"#8c8576"); }
+  px(0,7*T,192,2,"#5e584e");
+  // records
+  px(0,4,64,8,"#39424c"); px(0,12,64,36,"#4f5d6b");
+  px(6,20,14,12,"#2a3038"); px(6,25,14,2,"#7a6a50"); px(44,20,14,12,"#2a3038"); px(44,25,14,2,"#7a6a50");
+  px(36,34,9,14,"#2c2620"); px(42,41,1,1,"#c9b27a");
+  // bakery
+  px(64,8,64,6,"#6b4a36"); px(64,14,64,34,"#c49a5a");
+  for(let i=0;i<16;i++) px(64+i*4,24,4,6,i%2?"#e8dcc4":"#8e3b2f");
+  px(70,33,18,11,"#3b2a1c"); if(won) px(72,35,14,7,"#e0a54a");
+  px(100,34,9,14,"#5a3b26");
+  // chapel
+  px(128,14,64,34,"#a9a796"); px(128,10,64,5,"#5a5a4e"); px(146,0,28,16,"#a9a796"); px(146,0,28,2,"#5a5a4e");
+  px(155,4,10,9,"#2e2a24"); px(157,5,6,7,"#b08a3a"); px(178,22,8,12,"#6c7f93"); px(134,22,8,12,"#6c7f93");
+  if(won){ px(148,32,10,16,"#1a1410"); const fl=reduced?0:(Math.sin(t/180)>0?1:0); px(152,40,2,5,"#efe6cf"); px(152,37-fl,2,3,"#ffcf6b"); }
+  else { const rattle=has(s,"coin")&&!reduced&&Math.floor(t/90)%23===0?1:0; px(148+rattle,32,10,16,"#4a3626"); px(155+rattle,40,1,1,"#c9b27a"); }
+  // well
+  { const ox=6*T, oy=5*T; px(ox+2,oy+3,12,11,"#8a8f94"); px(ox+4,oy+5,8,7,"#15181b"); px(ox+2,oy,2,4,"#5a4a3a"); px(ox+12,oy,2,4,"#5a4a3a"); px(ox+2,oy,12,1,"#5a4a3a"); px(ox+8,oy+1,1,5,"#c9b27a"); }
+  // frost traces
+  if(has(s,"coin")&&!won){
+    const [sx,sy]=shadePos(t);
+    for(const [fx,fy,a] of [[sx,sy,1],[sx,sy+1,.5]]){ if(fy>6) continue; g.globalAlpha=a*0.9;
+      for(const [dx,dy] of [[3,4],[9,3],[6,9],[12,11],[2,12],[10,7]]) px(fx*T+dx,fy*T+dy,2,1,"#dfeaf2"); g.globalAlpha=1; }
+  }
+  // people
+  if(won) sprite(g,SPOT.baker.x,SPOT.baker.y,{hair:"#d7cfbf",face:"#d9a982",coat:"#7a5b3c",apron:"#ece6d6",tray:true},0.8);
+  if(has(s,"flower")){
+    let eyes=[0,0];
+    if(!won){ const [sx,sy]=shadePos(t); eyes=[Math.sign(sx-SPOT.maren.x)>0?1:0, sy<SPOT.maren.y?0:1]; }
+    else { eyes=[s.player.x>SPOT.maren.x?1:0, s.player.y<SPOT.maren.y?0:1]; }
+    sprite(g,SPOT.maren.x,SPOT.maren.y,{hair:"#6b3a26",face:"#e6c6ae",coat:"#3f5244",shawl:"#8d97a0",eyes},fadeIn("flower",t));
+  }
+  // clerk (a little less there than everyone else)
+  const flick=reduced?0.75:0.7+0.08*Math.sin(t/400);
+  sprite(g,s.player.x,s.player.y,{hair:"#3a2a1e",face:"#e0b894",coat:"#26335a",quill:true},won?0.85:flick);
+  if(won) for(const lx of [0,11]){ const ox=lx*T, oy=4*T; px(ox+7,oy-2,2,16,"#3a3a3a"); px(ox+5,oy-6,6,4,"#ffd27a"); }
+  else for(let y=0;y<8;y++)for(let x=0;x<12;x++){
+    if(x>=1&&x<=10&&y<=6) continue; px(x*T,y*T,T,T,"#2b3137");
+    const seed=reduced?0:Math.floor(t/140); for(let k=0;k<3;k++){ const h=(x*73+y*151+k*37+seed*11)%256; px(x*T+(h%16),y*T+((h>>4)%16),1,1,"#4a525a"); }
+  }
+}
+
+function drawOver(t){
+  og.clearRect(0,0,192,128);
+  const s=state, pulse=reduced?0.25:0.16+0.14*(0.5+0.5*Math.sin(t/320)), blink=reduced||Math.floor(t/500)%2;
+  const halo=(x,y)=>{ qx(x*T-1,y*T+5,18,9,`rgba(255,120,90,${pulse*0.6})`); qx(x*T+1,y*T+6,14,7,`rgba(255,120,90,${pulse})`); };
+  if(pickupAvailable(s,"flower")){ const ox=3*T, oy=4*T; halo(3,4); qx(ox+7,oy+6,1,6,"#5f7a3a"); qx(ox+5,oy+5,5,3,"#8a5aa8"); qx(ox+6,oy+4,3,1,"#a57ac2"); if(blink) qx(ox+7,oy+6,1,1,"#fff"); }
+  if(pickupAvailable(s,"coin")){ const ox=6*T, oy=5*T; qx(ox+5,oy+6,6,5,`rgba(170,210,255,${pulse})`); qx(ox+7,oy+8,2,2,"#cfe3f5"); if(blink) qx(ox+7,oy+8,1,1,"#fff"); }
+  if(pickupAvailable(s,"ribbon")){ const ox=10*T, oy=5*T; halo(10,5); qx(ox+2,oy+8,2,2,"#c0392b"); qx(ox+4,oy+9,7,2,"#c0392b"); qx(ox+5,oy+8,3,1,"#e8644f"); qx(ox+11,oy+8,3,3,"#1a1a1a"); if(blink) qx(ox+13,oy+8,1,1,"#ff9a3c"); }
+  if(shadeVisible(s)){
+    const ox=SPOT.shade.x*T, oy=SPOT.shade.y*T, a=fadeIn("ribbon",t)*(reduced?0.85:0.7+0.2*Math.sin(t/230)), sway=reduced?0:Math.round(Math.sin(t/500));
+    og.globalAlpha=a;
+    qx(ox+3+sway,oy-14,10,28,"#1c1a1f"); qx(ox+5+sway,oy-18,6,6,"#1c1a1f"); qx(ox+1,oy+6,14,8,"#1c1a1fcc");
+    qx(ox+4+sway,oy-10,8,2,"#d8cfa8"); qx(ox+6+sway,oy-15,1,1,"#f0ead0"); qx(ox+9+sway,oy-15,1,1,"#f0ead0");
+    og.globalAlpha=1;
+  }
+}
+function loop(t){ if(state.mode!=="battle"){ drawStreet(t); drawOver(t); } requestAnimationFrame(loop); }
+
+/* ===== Input ===== */
+const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],W:[0,-1],S:[0,1],A:[-1,0],D:[1,0]};
+addEventListener("keydown",e=>{
+  if(state.mode!=="street"||e.target.tagName==="BUTTON") return;
+  const k=KEYS[e.key]; if(!k) return; e.preventDefault(); stopPath(); dispatch({type:"STEP",dx:k[0],dy:k[1]});
+});
+function stopPath(){ path=[]; clearInterval(pathTimer); pathTimer=null; }
+function findPath(tx,ty){
+  const s=state, goals=new Set(), N=[[0,1],[0,-1],[1,0],[-1,0]];
+  if(walkable(tx,ty,s)) goals.add(tx+","+ty); else for(const [dx,dy] of N) if(walkable(tx+dx,ty+dy,s)) goals.add((tx+dx)+","+(ty+dy));
+  const start=s.player.x+","+s.player.y, prev={[start]:null}, q=[start];
+  while(q.length){ const cur=q.shift();
+    if(goals.has(cur)){ const out=[]; let c=cur; while(c!==start){ out.unshift(c.split(",").map(Number)); c=prev[c]; } return out; }
+    const [x,y]=cur.split(",").map(Number);
+    for(const [dx,dy] of N){ const n=(x+dx)+","+(y+dy); if(!(n in prev)&&walkable(x+dx,y+dy,s)){ prev[n]=cur; q.push(n); } } }
+  return null;
+}
+cv.addEventListener("click",e=>{
+  if(state.mode!=="street") return;
+  const r=cv.getBoundingClientRect(), tx=Math.floor((e.clientX-r.left)/r.width*TUNING.cols), ty=Math.floor((e.clientY-r.top)/r.height*TUNING.rows);
+  stopPath(); const p=findPath(tx,ty); if(!p) return;
+  const target=thingAt(tx,ty,state); path=p; let moved=false;
+  const step=()=>{
+    if(state.mode!=="street"||(moved&&state.say.choices.length)){ stopPath(); return; }
+    const nx=path.shift();
+    if(nx){ moved=true; dispatch({type:"STEP",dx:nx[0]-state.player.x,dy:nx[1]-state.player.y}); return; }
+    stopPath();
+    if(target&&Math.abs(tx-state.player.x)+Math.abs(ty-state.player.y)===1) dispatch({type:"STEP",dx:tx-state.player.x,dy:ty-state.player.y});
+  };
+  if(!path.length) step(); else pathTimer=setInterval(step,TUNING.stepMs);
+});
+render(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
