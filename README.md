@@ -28,14 +28,23 @@ It's a single self-contained file. Open `index.html` in a browser. There's no bu
 - **The Chandler.** The second fight adds darkness: some cards in your hand come up dark and cost 1 will to bring into the light before you can play them. Its snuffer darkens your whole next hand, and it can draw cards into candles (released at HP thresholds, like the shade). *Your own name* can't be taken.
 - **Ending.** Win and you gain the *Lit candle*; the pews fill with real people. Go back out to Maren and she hears you.
 - **The ledger.** A ruled side panel that inks in each card and what it lets you see.
+- **Unease.** Quiet horror, no gore or jump-scares:
+  - The baker never moves while you're near him. Walk away and he's closer, always facing you.
+  - Records room, well, and bakery door get worse each time you look (`looks` counters).
+  - In the dark chapel, the pew figures' eyes follow you, and a second clerk mirrors you at the edge of the light until you find your name.
+  - Rare glimpses: someone at the records-room desk, a face at the chapel glass.
+  - The ledger sometimes writes faint lines in empty rows, then they fade. The ending adds an entry in another hand.
+  - Low presence in battle (4 or less) makes the screen close in.
+  - Sound (toggle under the street; off until first tap/key): wind on the street, a drone in the chapel, footsteps that echo a beat late and sometimes once too often, a thump when a card is stolen.
 
 ## Code map (`index.html`)
 
-- `TUNING`: all balance numbers (HP, will, draw, shade HP, grip thresholds, grayscale steps).
+- `TUNING`: all balance numbers (HP, will, draw, foe HP, grip thresholds, darkness, baker pace, ledger-phantom timing, grayscale steps).
 - `CARDS`, `PICKUPS`, `SHADE_INTENTS`, `CHANDLER_INTENTS`, `FOES`, `SPOT`, `CHAPEL`: content and layout.
 - `reduce(state, action)`: all game logic as a pure reducer (`STEP`, `START_BATTLE`, `LIGHT`, `PLAY`, `END_TURN`, `CLAIM`, `RETREAT`, `RESET`); `state.scene` is `street` or `chapel`.
 - `render*`: DOM rendering for the ledger, narration, and battle.
 - `drawStreet` / `drawOver` and `drawChapel` / `drawChapelOver`: canvas pixel art per scene (base layer, then an overlay for glowing pickups, darkness, and foes).
+- `SFX`: WebAudio ambience and footsteps, no audio files.
 - Input: keyboard, plus tap-to-walk with BFS pathfinding.
 
 Supports light/dark themes and `prefers-reduced-motion`.

@@ -78,7 +78,16 @@ button:disabled{opacity:.45;cursor:default}
 .ledger li .s{display:block;font-style:normal;font-size:14.5px;color:var(--muted)}
 .ledger li.new .t{animation:ink 1.6s ease}
 @keyframes ink{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:none}}
-@media (prefers-reduced-motion: reduce){#street{transition:none}.ledger li.new .t{animation:none}}
+.ledger li .t.phantom{color:var(--margin);opacity:0;animation:phantom 7s ease forwards}
+@keyframes phantom{0%{opacity:0;filter:blur(2px)}30%{opacity:.6;filter:none}70%{opacity:.45}100%{opacity:0;filter:blur(3px)}}
+.ledger li.foreign .t{font-style:normal;color:var(--margin);letter-spacing:.4px}
+.battle.faint{animation:faint 2.6s ease-in-out infinite}
+.battle.faint .card b,.battle.faint .card small{animation:waver 3.1s ease-in-out infinite}
+@keyframes faint{50%{box-shadow:inset 0 0 70px 26px #000}}
+@keyframes waver{50%{filter:blur(.6px);opacity:.75}}
+.under{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+button.mini{font-size:14px;padding:3px 10px;color:var(--muted);background:transparent;border-color:var(--rule)}
+@media (prefers-reduced-motion: reduce){#street{transition:none}.ledger li.new .t,.ledger li .t.phantom,.battle.faint,.battle.faint .card b,.battle.faint .card small{animation:none}.ledger li .t.phantom{opacity:.5}}
 </style>
 </head>
 <body>
@@ -90,7 +99,7 @@ button:disabled{opacity:.45;cursor:default}
       <div class="battle" id="battle" aria-live="polite"></div>
     </div>
     <div class="narration" aria-live="polite"><p id="say"></p><div class="choices" id="choices"></div></div>
-    <p class="hint" id="hint">Arrow keys or WASD to walk, or tap the street. Walk into things to look at them.</p>
+    <div class="under"><p class="hint" id="hint">Arrow keys or WASD to walk, or tap the street. Walk into things to look at them.</p><button class="mini" id="sound" aria-pressed="true">Sound on</button></div>
   </section>
   <aside class="ledger" aria-label="The ledger">
     <h1>The Quiet Ledger</h1>
@@ -104,6 +113,7 @@ const TUNING = {
   tile:16, cols:12, rows:8, stepMs:105,
   hp:14, will:3, draw:4, lightCost:1,
   shadeHp:34, shadeGrips:[23,12],
+  bakerEvery:5, phantomEveryMs:[28000,55000],
   chandlerHp:40, chandlerGrips:[26,13], chandlerDark:1,
   grayByFound:[1,.8,.6,.45,.3,.2,.1,0],
 };
@@ -178,6 +188,7 @@ const chandlerVisible=s=>has(s,"name")&&!s.chapelWon;
 
 function initialState(){
   return { mode:"street", scene:"street", player:{x:2,y:3}, found:[], won:false, chapelWon:false,
+    baker:{...SPOT.baker}, bakerTick:0, looks:{},
     say:{text:"You wake standing in the middle of a street. No one is here. Your breath doesn't fog. Near the records room, one small thing still has colour in it.",choices:[]},
     battle:null };
 }
@@ -197,7 +208,7 @@ function thingAt(x,y,s){
   if(at(SPOT.well)) return "well";
   if(at(SPOT.maren)&&has(s,"flower")) return "maren";
   if(at(SPOT.shade)&&shadeVisible(s)) return "shade";
-  if(at(SPOT.baker)&&s.won) return "baker";
+  if(at(s.baker)&&s.won) return "baker";
   for(const k of ["records","bakeryDoor","chapel"]) if(at(SPOT[k])) return k;
   return null;
 }
@@ -206,6 +217,23 @@ function walkable(x,y,s){
   if(x<1||x>10||y<top||y>6) return false;
   const t=thingAt(x,y,s); return !t;
 }
+// The baker never moves while you're near him. Walk away and he's a step closer when you look back.
+const BAKER_AVOID=[[2,3],[6,3],[9,3],[3,4],[10,5]];
+function creep(s){
+  if(s.scene!=="street"||!s.won) return;
+  const b=s.baker, p=s.player, dx=p.x-b.x, dy=p.y-b.y;
+  s.bakerTick++;
+  if(Math.abs(dx)+Math.abs(dy)<4||s.bakerTick<TUNING.bakerEvery) return;
+  s.bakerTick=0;
+  const tries=[[Math.sign(dx),0],[0,Math.sign(dy)]].filter(([x,y])=>x||y);
+  if(Math.abs(dy)>Math.abs(dx)) tries.reverse();
+  for(const [mx,my] of tries){
+    const nx=b.x+mx, ny=b.y+my;
+    if(walkable(nx,ny,s)&&!BAKER_AVOID.some(([ax,ay])=>ax===nx&&ay===ny)){ s.baker={x:nx,y:ny}; return; }
+  }
+}
+const looked=(s,id)=>(s.looks[id]=(s.looks[id]||0)+1)-1;
+
 function pickupAvailable(s,id){ const p=PICKUPS[id]; return !has(s,id)&&(!p.needs||has(s,p.needs)); }
 
 function say(s,text,choices=[]){ s.say={text,choices}; return s; }
@@ -223,11 +251,22 @@ function pickup(s,id){
 function interact(s,id){
   if(id.startsWith("ghost")){ const g=CHAPEL.ghosts[+id.slice(5)]; return say(s,s.chapelWon?g.lit:g.dim); }
   switch(id){
-    case "records": return say(s,"The records room. A desk, a ledger, and a chair worn to the shape of someone who sat there a long time.");
-    case "bakeryDoor": return say(s,"The bakery door doesn't open. It has no inside yet.");
+    case "records": return say(s,[
+      "The records room. A desk, a ledger, and a chair worn to the shape of someone who sat there a long time.",
+      "The ledger on the desk is open to today. The last entry is in your handwriting. The ink is still wet.",
+      "The chair is still warm.",
+    ][Math.min(looked(s,"records"),2)]);
+    case "bakeryDoor":{
+      const n=looked(s,"bakeryDoor");
+      if(n===0) return say(s,"The bakery door doesn't open. It has no inside yet.");
+      if(n===1) return say(s,"You knock. After a moment, from the other side, something knocks back. Twice. Then it waits for you to answer.");
+      return say(s,"You don't knock this time. Something on the other side does, very softly, at the height of your face.");
+    }
     case "well":
       if(pickupAvailable(s,"coin")) return pickup(s,"coin");
-      return say(s,has(s,"coin")?"Dry. Something down there used to be cold.":"The well is dry. The rope goes down and stops at nothing.");
+      if(!has(s,"coin")) return say(s,"The well is dry. The rope goes down and stops at nothing.");
+      return say(s,looked(s,"well")===0?"Dry. Something down there used to be cold."
+        :"You lean over the edge and hold your breath. At the bottom, something keeps breathing. It's in time with you. It's in time with you even now.");
     case "maren":
       if(s.chapelWon){ s.mode="end"; return say(s,"Maren turns before you reach her. “You said your name in there,” she says. “I heard it all the way out at the well. I'd forgotten I knew it.”\n\nShe looks right at you now, not near you. Behind her, the bakery door has swung open. It has an inside now, warm and full of bread. That's for another night.",[{label:"Begin again",action:{type:"RESET"}}]); }
       if(s.won) return say(s,"She looks at you, or near you, the way you'd look at someone through a fogged window. “You're the clerk. You've stood at that desk three winters. I thought you were frost on the glass.”");
@@ -235,7 +274,9 @@ function interact(s,id){
       if(has(s,"coin")) return say(s,"She shivers as you come close and pulls her shawl tight. She's looking past you, at the frost.");
       return say(s,"She doesn't move. Her breath fogs in the cold. Yours doesn't.");
     case "shade": return say(s,"It waits on the chapel steps, and it is watching you.",fight("shade"));
-    case "baker": return say(s,"A baker, frozen mid-step with a tray of loaves. He isn't looking at anything yet.");
+    case "baker":
+      if(s.baker.x===SPOT.baker.x&&s.baker.y===SPOT.baker.y) return say(s,"A baker, frozen mid-step with a tray of loaves. His eyes are on you. They were on you before you turned around.");
+      return say(s,"He's still mid-step, tray held out toward you. He was by the bakery. You're sure he was by the bakery.");
     case "chapel":
       if(s.won){ s.scene="chapel"; s.player={...CHAPEL.entry};
         return say(s,s.chapelWon?"Back inside. The candles burn steady now, and the people in the pews are easy to see."
@@ -276,7 +317,7 @@ function reduce(prev,a){
       if(s.mode!=="street") return prev;
       const x=s.player.x+a.dx, y=s.player.y+a.dy;
       if(walkable(x,y,s)){
-        s.player={x,y}; s.say={text:s.say.text,choices:[]};
+        s.player={x,y}; s.say={text:s.say.text,choices:[]}; creep(s);
         for(const [id,p] of Object.entries(PICKUPS)) if(p.step&&p.scene===s.scene&&p.x===x&&p.y===y&&pickupAvailable(s,id)) return pickup(s,id);
         return s;
       }
@@ -363,10 +404,69 @@ function reduce(prev,a){
 
 /* ===== Store ===== */
 let state=initialState(), path=[], pathTimer=null;
-function dispatch(a){ const n=reduce(state,a); if(n!==state){ state=n; render(); } }
+function dispatch(a){
+  const n=reduce(state,a); if(n===state) return;
+  const prev=state; state=n; render();
+  if(prev.player!==n.player&&(prev.player.x!==n.player.x||prev.player.y!==n.player.y)) SFX.step(n.scene==="chapel"&&!n.chapelWon);
+  if(prev.battle&&n.battle&&n.battle.taken.length>prev.battle.taken.length) SFX.thump();
+}
 const $=id=>document.getElementById(id);
 const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
 const esc=t=>t.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ===== Sound (quiet; off until the first tap or key, and remembered per browser) ===== */
+const SFX=(()=>{
+  let ac=null, on=true, ready=false, amb=null, nb=null;
+  try{ on=localStorage.getItem("ql-sound")!=="off"; }catch(e){}
+  function ctx(){
+    if(!on||!ready) return null;
+    if(!ac){ try{ ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; } }
+    if(ac.state==="suspended") ac.resume();
+    return ac;
+  }
+  function noise(a){ if(nb) return nb; nb=a.createBuffer(1,a.sampleRate,a.sampleRate); const d=nb.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; return nb; }
+  function burst(when,gain,freq,dur){
+    const a=ctx(); if(!a) return;
+    const src=a.createBufferSource(), f=a.createBiquadFilter(), g=a.createGain(), t=a.currentTime+when;
+    src.buffer=noise(a); f.type="lowpass"; f.frequency.value=freq;
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(gain,t+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(f).connect(g).connect(a.destination); src.start(t); src.stop(t+dur+0.05);
+  }
+  function stopAmb(){ if(!amb) return; const old=amb; amb=null; old.g.gain.setTargetAtTime(0,ac.currentTime,0.5); setTimeout(()=>old.nodes.forEach(n=>{try{n.stop()}catch(e){}}),2500); }
+  function ambience(kind){
+    if(amb&&amb.kind===kind) return; stopAmb();
+    const a=ctx(); if(!a) return;
+    const g=a.createGain(), nodes=[]; g.gain.value=0; g.connect(a.destination);
+    if(kind==="street"){ const src=a.createBufferSource(), f=a.createBiquadFilter(); src.buffer=noise(a); src.loop=true; f.type="bandpass"; f.frequency.value=380; f.Q.value=0.6; src.connect(f).connect(g); src.start(); nodes.push(src); g.gain.setTargetAtTime(0.02,a.currentTime,1.5); }
+    else { for(const fr of kind==="chapel"?[55,55.6,82.6]:[46,46.8]){ const o=a.createOscillator(); o.frequency.value=fr; o.connect(g); o.start(); nodes.push(o); } g.gain.setTargetAtTime(0.035,a.currentTime,1.5); }
+    amb={kind,g,nodes};
+  }
+  return {
+    get on(){ return on; },
+    unlock(){ ready=true; },
+    toggle(){ on=!on; try{ localStorage.setItem("ql-sound",on?"on":"off"); }catch(e){} if(!on) stopAmb(); },
+    // in the dark chapel your footsteps come back a beat late, and now and then there's one more than yours
+    step(echo){ burst(0,0.07,900,0.09); if(echo){ burst(0.42,0.04,650,0.1); if(Math.random()<0.18) burst(0.68,0.035,560,0.1); } },
+    thump(){ burst(0,0.22,150,0.55); },
+    ambience,
+  };
+})();
+function syncSound(){
+  SFX.ambience(state.mode==="battle"?"battle":state.scene==="chapel"&&!state.chapelWon?"chapel":"street");
+  const b=$("sound"); b.textContent=SFX.on?"Sound on":"Sound off"; b.setAttribute("aria-pressed",SFX.on);
+}
+
+/* ===== The ledger writes on its own ===== */
+const PHANTOM=["Don't say it out loud.","Count the people on the street. Count again.","Three winters.","It was warm when you left it.","Who is holding the pen?","You were here before.","It knows which cards are yours."];
+function phantom(){
+  const [lo,hi]=TUNING.phantomEveryMs; setTimeout(phantom,lo+Math.random()*(hi-lo));
+  if(state.mode!=="street"||document.hidden) return;
+  const empty=[...document.querySelectorAll("#entries li .t")].filter(t=>!t.textContent);
+  if(!empty.length) return;
+  const t=empty[Math.floor(Math.random()*empty.length)];
+  t.textContent=PHANTOM[Math.floor(Math.random()*PHANTOM.length)]; t.classList.add("phantom");
+  setTimeout(()=>{ if(t.classList.contains("phantom")){ t.textContent=""; t.classList.remove("phantom"); } },7000);
+}
 
 /* ===== Text rendering ===== */
 let shownFound=[];
@@ -374,10 +474,12 @@ function renderLedger(){
   const ol=$("entries"); ol.innerHTML="";
   const rows=[{name:"Clerk's pen ×3, hold still ×3",sight:"The street, and nobody on it."},
     ...state.found.map(id=>({id,name:CARDS[id].name,sight:CARDS[id].reveal}))];
+  if(state.mode==="end"&&state.chapelWon) rows.push({id:"clerk",foreign:true,name:"The clerk",sight:"Received into the chapel, three winters ago. Entered in another hand."});
   for(let i=0;i<Math.max(7,rows.length);i++){
     const r=rows[i], li=document.createElement("li");
     li.innerHTML=`<span class="n">${i+1}</span><span class="t">${r?`${esc(r.name)}<span class="s">${esc(r.sight)}</span>`:""}</span>`;
     if(r&&r.id&&!shownFound.includes(r.id)) li.classList.add("new");
+    if(r&&r.foreign) li.classList.add("foreign");
     ol.appendChild(li);
   }
   shownFound=[...state.found];
@@ -392,6 +494,7 @@ function bar(n,max,cls){ return `<div class="bar ${cls}" aria-hidden="true">${Ar
 function renderBattle(){
   const el=$("battle"), on=state.mode==="battle";
   el.classList.toggle("on",on);
+  el.classList.toggle("faint",on&&!state.battle.over&&state.battle.hp<=4);
   $("street").style.display=on?"none":"block"; $("over").style.display=on?"none":"block";
   $("hint").style.visibility=on?"hidden":"visible";
   if(!on){ el.innerHTML=""; return; }
@@ -414,7 +517,7 @@ function renderBattle(){
   $("end").onclick=()=>dispatch({type:"END_TURN"});
 }
 function render(){
-  renderLedger(); renderNarration(); renderBattle();
+  renderLedger(); renderNarration(); renderBattle(); syncSound();
   const g=TUNING.grayByFound[Math.min(state.found.length,TUNING.grayByFound.length-1)];
   $("street").style.filter=`grayscale(${g}) contrast(${0.85+0.15*(1-g)})`;
   $("street").setAttribute("aria-label",state.scene==="chapel"?"Inside the chapel. Use arrow keys to walk, or tap a place.":"The street. Use arrow keys to walk, or tap a place.");
@@ -427,6 +530,10 @@ const qx=(x,y,w,h,c)=>{og.fillStyle=c;og.fillRect(x,y,w,h)};
 const DRIFT=[[9,3],[10,3],[10,4],[9,4],[8,3],[8,4]];
 function shadePos(t){ return shadeVisible(state)?[SPOT.shade.x,SPOT.shade.y]:DRIFT[Math.floor((reduced?0:t)/1500)%DRIFT.length]; }
 function fadeIn(id,t){ const lf=state.lastFound; if(!lf||lf.id!==id||reduced) return 1; return Math.min(1,(Date.now()-lf.at)/1800); }
+
+const lookAt=(from,to)=>[to.x>from.x?1:0,to.y<from.y?0:1];
+// A brief, rare flash. Never under reduced motion.
+const glimpse=(t,every,len)=>!reduced&&t>every&&(t%every)<len;
 
 function sprite(ctx,x,y,c,alpha=1){
   const ox=x*T, oy=y*T, f=(a,b,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(ox+a,oy+b,w,h)};
@@ -448,6 +555,7 @@ function drawStreet(t){
   // records
   px(0,4,64,8,"#39424c"); px(0,12,64,36,"#4f5d6b");
   px(6,20,14,12,"#2a3038"); px(6,25,14,2,"#7a6a50"); px(44,20,14,12,"#2a3038"); px(44,25,14,2,"#7a6a50");
+  if(glimpse(t,21000,160)){ px(10,21,6,5,"#cfc6b4"); px(11,23,1,1,"#111"); px(14,23,1,1,"#111"); px(9,26,8,6,"#26335a"); }
   px(36,34,9,14,"#2c2620"); px(42,41,1,1,"#c9b27a");
   // bakery
   px(64,8,64,6,"#6b4a36"); px(64,14,64,34,"#c49a5a");
@@ -468,7 +576,7 @@ function drawStreet(t){
       for(const [dx,dy] of [[3,4],[9,3],[6,9],[12,11],[2,12],[10,7]]) px(fx*T+dx,fy*T+dy,2,1,"#dfeaf2"); g.globalAlpha=1; }
   }
   // people
-  if(won) sprite(g,SPOT.baker.x,SPOT.baker.y,{hair:"#d7cfbf",face:"#d9a982",coat:"#7a5b3c",apron:"#ece6d6",tray:true},0.8);
+  if(won){ const b=s.baker; sprite(g,b.x,b.y,{hair:"#d7cfbf",face:"#d9a982",coat:"#7a5b3c",apron:"#ece6d6",tray:true,eyes:lookAt(b,s.player)},0.8); }
   if(has(s,"flower")){
     let eyes=[0,0];
     if(!won){ const [sx,sy]=shadePos(t); eyes=[Math.sign(sx-SPOT.maren.x)>0?1:0, sy<SPOT.maren.y?0:1]; }
@@ -528,7 +636,8 @@ function drawChapel(t){
   // pews, then the people in them
   for(const [x,y] of CHAPEL.pews){ const ox=x*T, oy=y*T; px(ox,oy+3,T,3,"#4a301f"); px(ox,oy+9,T,3,"#5a3b26"); px(ox+1,oy+12,2,4,"#3a2618"); px(ox+13,oy+12,2,4,"#3a2618"); }
   const ghostA=lit?0.9:(has(s,"name")?0.3:0.16)+(reduced?0:0.05*Math.sin(t/600));
-  for(const gh of CHAPEL.ghosts) if(gh.look) sprite(g,gh.x,gh.y,gh.look,ghostA*(lit?fadeIn("candle",t):1));
+  for(const gh of CHAPEL.ghosts) if(gh.look) sprite(g,gh.x,gh.y,lit?gh.look:{...gh.look,eyes:lookAt(gh,s.player)},ghostA*(lit?fadeIn("candle",t):1));
+  if(!lit&&glimpse(t,17000,130)){ px(98,5,7,7,"#d8d2c2"); px(99,7,2,2,"#111"); px(103,7,2,2,"#111"); px(100,10,3,1,"#3a2a2a"); }
   // clerk: more solid once you have your name back
   const flick=reduced?0.75:0.7+0.08*Math.sin(t/400);
   sprite(g,s.player.x,s.player.y,{hair:"#3a2a1e",face:"#e0b894",coat:"#26335a",quill:true},has(s,"name")?0.92:flick);
@@ -545,6 +654,10 @@ function drawChapelOver(t){
       const a=Math.min(0.88,fall(pl.x,pl.y,r),fall(CHAPEL.stand.x,CHAPEL.stand.y,1),fall(5.5,7,0.8));
       if(a>0) qx(x*T,y*T,T,T,`rgba(8,8,12,${a})`);
     }
+  }
+  if(!has(s,"name")){
+    const pl=s.player, m={x:11-pl.x,y:pl.y}, d=Math.abs(m.x-pl.x);
+    if(d>=3) sprite(og,m.x,m.y,{hair:"#3a2a1e",face:"#e0b894",coat:"#26335a",quill:true,eyes:lookAt(m,pl)},reduced?0.22:0.16+0.08*Math.sin(t/300));
   }
   if(pickupAvailable(s,"taper")) halo(CHAPEL.stand.x,CHAPEL.stand.y,pulse);
   if(pickupAvailable(s,"name")) halo(CHAPEL.lectern.x,CHAPEL.lectern.y,pulse);
@@ -566,6 +679,9 @@ function loop(t){
 }
 
 /* ===== Input ===== */
+const wake=()=>{ SFX.unlock(); syncSound(); };
+addEventListener("pointerdown",wake,{once:true}); addEventListener("keydown",wake,{once:true});
+$("sound").onclick=()=>{ SFX.toggle(); syncSound(); };
 const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],W:[0,-1],S:[0,1],A:[-1,0],D:[1,0]};
 addEventListener("keydown",e=>{
   if(state.mode!=="street"||e.target.tagName==="BUTTON") return;
@@ -590,6 +706,7 @@ cv.addEventListener("click",e=>{
   const step=()=>{
     if(state.mode!=="street"||(moved&&state.say.choices.length)){ stopPath(); return; }
     const nx=path.shift();
+    if(nx&&Math.abs(nx[0]-state.player.x)+Math.abs(nx[1]-state.player.y)!==1){ stopPath(); return; }
     if(nx){ moved=true; dispatch({type:"STEP",dx:nx[0]-state.player.x,dy:nx[1]-state.player.y}); return; }
     stopPath();
     if(target&&Math.abs(tx-state.player.x)+Math.abs(ty-state.player.y)===1) dispatch({type:"STEP",dx:tx-state.player.x,dy:ty-state.player.y});
@@ -597,6 +714,7 @@ cv.addEventListener("click",e=>{
   if(!path.length) step(); else pathTimer=setInterval(step,TUNING.stepMs);
 });
 render(); requestAnimationFrame(loop);
+setTimeout(phantom,12000);
 </script>
 </body>
 </html>
